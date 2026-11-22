@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WB FBS · Пульт заказов</title>
+<style>
+:root{color-scheme:dark;--bg:#0d0a13;--panel:rgba(27,21,37,.82);--text:#f8f3fc;--muted:#bdb0ca;--line:#3c2b4b;--purple:#c79aff;--danger:#ffb8bc}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;color:var(--text);background:radial-gradient(ellipse at 18% 0%,#33184f 0,transparent 48%),radial-gradient(ellipse at 100% 32%,#221135 0,transparent 48%),var(--bg);font:15px/1.5 system-ui,sans-serif}
+header{border-bottom:1px solid var(--line);background:#120d1bd9;backdrop-filter:blur(16px)}.header,main{width:min(1180px,calc(100% - 36px));margin:auto}.header{min-height:72px;display:flex;align-items:center;gap:34px;flex-wrap:wrap;padding:12px 0}
+.logo{font-size:17px;font-weight:800;white-space:nowrap}.logo b{display:inline-grid;place-items:center;width:38px;height:38px;margin-right:10px;border-radius:12px;background:linear-gradient(140deg,#873bea,#581f9a);box-shadow:inset 0 1px #ffffff4a;color:white}
+nav,.actions,.filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap}a,button,input{font:inherit}nav a{color:var(--muted);text-decoration:none;padding:7px 12px;border-radius:9px}nav a[aria-current]{color:white;background:#4a2869}
+main{padding:38px 0 60px}h1,h2,p{margin:0}h1{font-size:clamp(31px,5vw,50px);line-height:1.1;letter-spacing:-.04em}h2{font-size:18px}.lead,.muted,small{color:var(--muted)}.lead{margin-top:9px}.heading{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:24px}
+.glass{border:1px solid var(--line);border-radius:18px;background:linear-gradient(150deg,#33224666,transparent 58%),var(--panel);box-shadow:inset 0 1px #ffffff0a,0 16px 36px #07050d55;backdrop-filter:blur(16px)}
+.metrics,.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:14px}.metric,.card,.panel{padding:20px}.metric strong,.count{display:block;font-size:32px;color:#e3c7ff;font-weight:770;line-height:1.2;margin-top:6px}.section-title{margin:26px 0 12px}.card small{display:block;margin-top:7px}.warning{color:var(--danger);overflow-wrap:anywhere}
+button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;color:#f7efff;background:#2e1d41;cursor:pointer;text-decoration:none;transition:background .18s,transform .18s}button:hover,.button:hover{background:#4a2a68}button:active{transform:translateY(1px)}button:disabled{opacity:.55;cursor:default}.primary{background:linear-gradient(120deg,#7432bb,#6230a6);border-color:#a46dda}.primary:hover{background:#783abf}.danger{color:var(--danger)}:focus-visible{outline:2px solid #d4a9ff;outline-offset:3px}
+.filters{margin-top:12px}.filter{padding:6px 10px;border:1px solid var(--line);border-radius:9px;background:#231731;cursor:pointer}input[type=checkbox]{accent-color:#a961ee;width:17px;height:17px;vertical-align:middle;margin:0 5px 0 0}.table-wrap{overflow:auto;margin-top:14px}table{text-align:left;border-collapse:collapse;width:100%;min-width:640px}th,td{padding:11px 9px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-size:13px}tr[data-selected]{background:#73429b32}.right{margin-left:auto}.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:16px 0 0}
+.settings{display:grid;grid-template-columns:minmax(260px,1fr) minmax(260px,1fr);gap:16px;align-items:start}.shop-row{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line)}form{display:grid;gap:11px;margin-top:12px}form label:not(.filter){display:grid;gap:4px}input:not([type=checkbox]){width:100%;padding:9px 11px;color:var(--text);background:#181020;border:1px solid #513b66;border-radius:9px}.message{margin-bottom:14px;color:var(--danger)}.empty{padding:16px 0;color:var(--muted)}[hidden]{display:none!important}
+.sort{background:transparent;border:0;padding:4px 1px;color:inherit;text-align:left;white-space:nowrap}.sort:hover{color:white;background:transparent}th[aria-sort=ascending] .sort::after{content:' ↑';color:var(--purple)}th[aria-sort=descending] .sort::after{content:' ↓';color:var(--purple)}.thumb{display:grid;place-items:center;width:47px;height:57px;background:#2b1b3b;border:1px solid #4b345c;border-radius:8px;color:var(--muted);overflow:hidden}.thumb img{width:100%;height:100%;object-fit:cover}.has-tip{border-bottom:1px dotted var(--purple);cursor:help;white-space:nowrap}.mono{font-variant-numeric:tabular-nums}.diagnostic-hero{margin-bottom:16px;padding:22px;background:linear-gradient(120deg,#482472c9,#181024bf);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}.diagnostic-hero strong{font-size:23px}.pill{padding:5px 9px;border:1px solid #7556a0;border-radius:100px;background:#3c2458;color:#f0dfff}.pill.ok{background:#173c31;border-color:#38856a;color:#baf9d6}.diag-details{margin-top:14px}.diag-details dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:15px;margin:14px 0 0}.diag-details dt{color:var(--muted)}.diag-details dd{margin:2px 0 0;overflow-wrap:anywhere}.supply-list{word-break:break-word;margin-top:9px}.supply-state{margin-top:10px}.card h2{overflow-wrap:anywhere}
+@media(max-width:680px){.header{gap:8px}.settings{grid-template-columns:1fr}main{padding-top:26px}.metric,.card,.panel{padding:15px}}
+@media(prefers-reduced-motion:no-preference){main{animation:enter .28s ease-out}@keyframes enter{from{opacity:.55;transform:translateY(6px)}to{opacity:1;transform:none}}}
+</style>
+</head>
+<body>
+<header><div class="header"><div class="logo"><b>WB</b>Собирашкин</div><nav aria-label="Разделы"><a href="/">Сводка</a><a href="/assembly">Сборка</a><a href="/supplies">Поставки</a><a href="/shops">Магазины</a><a href="/vds">VDS</a></nav></div></header>
+<main>
+  <div class="heading">
+    <div><h1 id="heading"></h1><p class="lead" id="lead"></p></div>
+    <button id="refresh" class="primary" type="button">Обновить заказы</button>
+  </div>
+  <p id="message" class="message" role="status" hidden></p>
+  <section id="dashboard" hidden>
+    <div class="metrics" id="metrics"></div>
+    <h2 class="section-title">Заказы по магазинам</h2>
+    <div class="cards" id="cards"></div>
+  </section>
+  <section id="assembly" class="glass panel" hidden>
+    <h2>Магазины</h2>
+    <div class="filters" id="filters"></div>
+    <div class="toolbar"><button id="select-visible" type="button">Выбрать видимые</button><button id="clear-selection" type="button">Снять выбор</button><a class="button primary" href="/supplies">Подготовить поставки</a><span id="selection-status" class="muted right" aria-live="polite"></span></div>
+    <p id="assembly-note" class="empty" hidden></p>
+    <div class="table-wrap" id="table-wrap">
+      <table aria-label="Заказы для сборки">
+        <thead><tr><th><input id="select-all" type="checkbox" aria-label="Выбрать все видимые заказы"></th><th><button class="sort" data-sort="id">Номер</button></th><th>Карточка</th><th><button class="sort" data-sort="title">Название</button></th><th><button class="sort" data-sort="price">Цена</button></th><th><button class="sort" data-sort="age">Возраст</button></th><th><button class="sort" data-sort="warehouseId">Склад</button></th><th><button class="sort" data-sort="shop">Магазин</button></th></tr></thead>
+        <tbody id="orders"></tbody>
+      </table>
+    </div>
+  </section>
+  <section id="supplies" hidden>
+    <div class="glass panel"><div class="actions"><a class="button" href="/assembly">К заказам</a><button id="preview-supplies" class="primary" type="button">Рассчитать поставки</button><button type="button" disabled>Отправить в сборку</button></div><p class="supply-state muted" id="supply-status" role="status"></p></div>
+    <h2 class="section-title">Поставки по магазинам</h2><div class="cards" id="supply-items"></div>
+  </section>
+  <section id="vds" hidden>
+    <div class="glass diagnostic-hero"><div><strong id="vds-location">Проверка подключения</strong><p class="muted" id="vds-endpoint"></p></div><span class="pill" id="vds-badge">Ожидание</span></div>
+    <div class="metrics" id="vds-metrics"></div>
+    <div class="glass panel diag-details"><h2>Маршрут и геолокация</h2><dl id="vds-details"></dl></div>
+  </section>
+  <section id="shops" class="settings" hidden>
+    <div class="glass panel"><h2>Подключённые магазины</h2><div id="shop-list"></div></div>
+    <div class="glass panel">
+      <h2 id="form-title">Добавить магазин</h2>
+      <form id="shop-form" autocomplete="off">
+        <label>Название магазина<input id="shop-name" maxlength="80" required></label>
+        <label>API-токен «Маркетплейс»<input id="shop-token" type="password" maxlength="4096" spellcheck="false" autocomplete="off" required></label>
+        <label>Отдельный токен «Контент» (если нужен)<input id="content-token" type="password" maxlength="4096" spellcheck="false" autocomplete="off"></label>
+        <small>Если основной токен уже даёт доступ к категории «Контент», оставь второе поле пустым.</small>
+        <label id="clear-content-row" class="filter" hidden><input id="clear-content" type="checkbox">Удалить отдельный токен «Контент»</label>
+        <div class="actions"><button type="submit" id="save" class="primary">Сохранить магазин</button><button id="cancel" type="button" hidden>Отмена</button></div>
+      </form>
+    </div>
+  </section>
+</main>
+<script>
+const byId = id => document.getElementById(id);
+const sections = {
+  '/': ['dashboard', 'Сводка заказов', 'Новые сборочные задания FBS по магазинам.'],
+  '/assembly': ['assembly', 'Сборка', 'Выбери магазины и отметь заказы, которые берёшь в работу.'],
+  '/shops': ['shops', 'Магазины', 'Подключи магазины по API-токенам Wildberries.'],
+  '/supplies': ['supplies', 'Поставки', 'Предпросмотр отправки выбранных заказов в сборку WB.'],
+  '/vds': ['vds', 'Диагностика VDS', 'SSH, исходящий IPv4 и доступность WB API с сервера.'],
+};
+const [section, heading, lead] = sections[location.pathname] || sections['/'];
+byId(section).hidden = false;
+byId('heading').textContent = heading;
+byId('lead').textContent = lead;
+document.querySelector('nav a[href="' + location.pathname + '"]')?.setAttribute('aria-current', 'page');
+const dateFormat = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
+const number = new Intl.NumberFormat('ru-RU');
+let shops = [];
+let picked = new Set();
+let filter = null;
+let editing = '';
+let sending = false;
+let syncing = false;
+let systemError = '';
+let exchange = null;
+let sort = { key: 'age', direction: -1 };
+let diagnosticBusy = false;
+let previewBusy = false;
+const compare = new Intl.Collator('ru-RU', { numeric: true, sensitivity: 'base' });
+const rubles = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' });
+const yuan = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'CNY' });
+const ageFormat = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'medium', timeZone: 'Europe/Moscow' });
+try {
+  picked = new Set(JSON.parse(sessionStorage.getItem('wb-fbs-picked') || '[]'));
+  filter = JSON.parse(sessionStorage.getItem('wb-fbs-filter') || 'null');
+  sort = JSON.parse(sessionStorage.getItem('wb-fbs-sort') || 'null') || sort;
+} catch {}
+
+function element(tag, value, className) {
+  const item = document.createElement(tag);
+  if (value != null) item.textContent = value;
+  if (className) item.className = className;
+  return item;
+}
+function action(label, callback, className) {
+  const button = element('button', label, className);
+  button.type = 'button';
+  button.addEventListener('click', callback);
+  return button;
+}
+function date(value) {
+  const parsed = new Date(value);
+  return value && !Number.isNaN(parsed.getTime()) ? dateFormat.format(parsed) : '—';
+}
+function showError(message = '') {
+  const status = byId('message');
+  status.textContent = message;
+  status.hidden = !message;
+}
+function store(key, value) {
+  try { sessionStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+function shopStatus(shop) {
+  if (shop.error) return shop.error;
+  if (shop.loadingTitles) return 'Заказы получены. Загружаются названия…';
+  if (shop.busy) return 'Обновляется…';
+  return shop.updatedAt ? 'Обновлено ' + date(shop.updatedAt) : 'Ещё не обновлялся';
+}
+function renderDashboard() {
+  const loaded = shops.filter(shop => shop.updatedAt);
+  const total = loaded.reduce((count, shop) => count + shop.orders.length, 0);
+  const metrics = [['Новые задания', loaded.length ? number.format(total) : '—'],
+    ['Данные получены', loaded.length + ' из ' + shops.length],
+    ['Магазины с ошибками', shops.filter(shop => shop.error).length]];
+  byId('metrics').replaceChildren(...metrics.map(([label, value]) => {
+    const card = element('div', null, 'glass metric');
+    card.append(element('span', label, 'muted'), element('strong', value));
+    return card;
+  }));
+  const cards = shops.map(shop => {
+    const card = element('article', null, 'glass card');
+    card.append(element('h2', shop.name), element('div', shop.orders ? number.format(shop.orders.length) : '—', 'count'),
+      element('span', 'Новые задания', 'muted'), element('small', shopStatus(shop), shop.error ? 'warning' : ''));
+    if (shop.titleError) card.append(element('small', shop.titleError, 'warning'));
+    return card;
+  });
+  if (!cards.length) {
+    const empty = element('div', null, 'glass card');
+    empty.append(element('p', 'Подключи магазин, чтобы увидеть заказы.', 'empty'));
+    const link = element('a', 'Добавить магазин', 'button');
+    link.href = '/shops';
+    empty.append(link);
+    cards.push(empty);
+  }
+  byId('cards').replaceChildren(...cards);
+}
+function visibleOrders() {
+  return shops.filter(shop => filter === null || filter.includes(shop.id))
+    .flatMap(shop => (shop.orders || []).map(order => ({
+      ...order, shop: shop.name, key: shop.id + '/' + order.id,
+    })))
+    .sort((a, b) => {
+      const left = sortValue(a);
+      const right = sortValue(b);
+      if (left == null || right == null) return Number(left == null) - Number(right == null);
+      const order = typeof left === 'number' && typeof right === 'number' ? left - right : compare.compare(left, right);
+      return order * sort.direction || compare.compare(a.key, b.key);
+    });
+}
+function price(order) {
+  const original = Number.isFinite(order.price) ? order.price / 100 : null;
+  const converted = Number.isFinite(order.convertedPrice) ? order.convertedPrice / 100 : null;
+  const originalCurrency = Number(order.currencyCode);
+  const convertedCurrency = Number(order.convertedCurrencyCode);
+  const rub = originalCurrency === 643 && original != null ? original : convertedCurrency === 643 ? converted : null;
+  const cny = originalCurrency === 156 && original != null ? original : convertedCurrency === 156 ? converted : null;
+  const rate = exchange?.rubPerCny;
+  return { rub: rub ?? (cny != null && rate ? cny * rate : null),
+    cny: cny ?? (rub != null && rate ? rub / rate : null), approximateRub: rub == null && cny != null && rate,
+    approximateCny: cny == null && rub != null && rate };
+}
+function sortValue(order) {
+  if (sort.key === 'title') return order.title || order.article || null;
+  if (sort.key === 'price') return price(order).rub;
+  if (sort.key === 'age') return Number.isFinite(Date.parse(order.createdAt)) ? -Date.parse(order.createdAt) : null;
+  return order[sort.key] ?? null;
+}
+function age(value) {
+  if (!Number.isFinite(Date.parse(value))) return '—';
+  const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 60000));
+  if (minutes < 1) return '< 1 мин';
+  if (minutes < 60) return minutes + ' мин';
+  if (minutes < 1440) return Math.floor(minutes / 60) + ' ч ' + (minutes % 60) + ' мин';
+  return Math.floor(minutes / 1440) + ' д ' + (Math.floor(minutes / 60) % 24) + ' ч';
+}
+function tip(value, details) {
+  const span = element('span', value, 'has-tip mono');
+  span.title = details;
+  span.setAttribute('aria-label', value + '. ' + details);
+  return span;
+}
+function updateSelection(visible) {
+  const selected = visible.filter(order => picked.has(order.key)).length;
+  const toggle = byId('select-all');
+  toggle.checked = visible.length > 0 && selected === visible.length;
+  toggle.indeterminate = selected > 0 && selected < visible.length;
+  toggle.disabled = !visible.length;
+  byId('select-visible').disabled = !visible.length;
+  byId('clear-selection').disabled = !picked.size;
+  byId('selection-status').textContent = 'Выбрано ' + picked.size + ' · видно ' + selected + ' из ' + visible.length;
+  store('wb-fbs-picked', [...picked]);
+}
+function setVisibleSelection(add) {
+  for (const { key } of visibleOrders()) add ? picked.add(key) : picked.delete(key);
+  renderAssembly();
+}
+function renderAssembly() {
+  for (const header of document.querySelectorAll('[data-sort]')) {
+    if (header.dataset.sort === sort.key) header.parentElement.setAttribute('aria-sort', sort.direction === 1 ? 'ascending' : 'descending');
+    else header.parentElement.removeAttribute('aria-sort');
+  }
+  const previousFilter = document.activeElement?.dataset.shopFilter;
+  const filters = shops.map(shop => {
+    const label = element('label', null, 'filter');
+    const checkbox = element('input');
+    checkbox.type = 'checkbox';
+    checkbox.dataset.shopFilter = shop.id;
+    checkbox.checked = filter === null || filter.includes(shop.id);
+    checkbox.addEventListener('change', () => {
+      const ids = new Set(filter === null ? shops.map(item => item.id) : filter);
+      checkbox.checked ? ids.add(shop.id) : ids.delete(shop.id);
+      filter = ids.size === shops.length ? null : [...ids];
+      store('wb-fbs-filter', filter);
+      renderAssembly();
+    });
+    label.append(checkbox, document.createTextNode(shop.name));
+    return label;
+  });
+  byId('filters').replaceChildren(...filters);
+  if (previousFilter) byId('filters').querySelector('[data-shop-filter="' + previousFilter + '"]')?.focus();
+  const visible = visibleOrders();
+  const previousOrder = document.activeElement?.dataset.orderKey;
+  const running = shops.some(shop => shop.busy);
+  const note = byId('assembly-note');
+  note.hidden = Boolean(visible.length);
+  note.textContent = !shops.length ? 'Добавь магазин в разделе «Магазины».'
+    : running ? 'Заказы обновляются…' : 'Для выбранных магазинов нет отображаемых заданий. Проверь фильтры и статусы на сводке.';
+  byId('table-wrap').hidden = !visible.length;
+  byId('orders').replaceChildren(...visible.map(order => {
+    const row = element('tr');
+    const check = element('input');
+    check.type = 'checkbox';
+    check.dataset.orderKey = order.key;
+    check.checked = picked.has(order.key);
+    row.toggleAttribute('data-selected', check.checked);
+    check.setAttribute('aria-label', 'Выбрать задание ' + order.id + ', ' + order.shop);
+    check.addEventListener('change', () => {
+      check.checked ? picked.add(order.key) : picked.delete(order.key);
+      row.toggleAttribute('data-selected', check.checked);
+      updateSelection(visible);
+    });
+    row.insertCell().append(check);
+    row.insertCell().textContent = order.id;
+    const thumb = element('span', '—', 'thumb');
+    if (order.photo) {
+      const img = element('img');
+      img.alt = '';
+      img.loading = 'lazy';
+      img.addEventListener('error', () => thumb.replaceChildren(document.createTextNode('—')), { once: true });
+      img.src = order.photo;
+      thumb.replaceChildren(img);
+    }
+    row.insertCell().append(thumb);
+    const product = row.insertCell();
+    product.append(element('strong', order.title || order.article || 'Товар без названия'));
+    if (order.title && order.article) product.append(element('div', order.article, 'muted'));
+    const amounts = price(order);
+    const cost = amounts.rub == null ? '—' : (amounts.approximateRub ? '≈ ' : '') + rubles.format(amounts.rub);
+    const cny = amounts.cny == null ? 'Цена в юанях недоступна' :
+      (amounts.approximateCny ? '≈ ' + yuan.format(amounts.cny) + ' · курс ЦБ РФ за ' + exchange.date : yuan.format(amounts.cny) + ' · цена WB');
+    row.insertCell().append(tip(cost, cny));
+    const created = Date.parse(order.createdAt);
+    const timer = tip(age(order.createdAt), Number.isFinite(created) ? ageFormat.format(created) + ' МСК' : 'Время заказа неизвестно');
+    timer.dataset.created = order.createdAt || '';
+    row.insertCell().append(timer);
+    row.insertCell().textContent = order.warehouseId ?? '—';
+    row.insertCell().textContent = order.shop;
+    return row;
+  }));
+  if (previousOrder) {
+    [...byId('orders').querySelectorAll('input')].find(input => input.dataset.orderKey === previousOrder)?.focus();
+  }
+  updateSelection(visible);
+}
+function renderShops() {
+  byId('shop-list').replaceChildren(...shops.map(shop => {
+    const row = element('div', null, 'shop-row');
+    const caption = element('div');
+    caption.append(element('strong', shop.name), element('div', shopStatus(shop), shop.error ? 'warning' : 'muted'));
+    if (shop.titleError) caption.append(element('small', shop.titleError, 'warning'));
+    const buttons = element('div', null, 'actions');
+    const edit = action('Изменить', () => editShop(shop), '');
+    const remove = action('Удалить', async () => {
+      if (confirm('Удалить магазин «' + shop.name + '» из панели?')) await mutate('/api/remove', { id: shop.id });
+    }, 'danger');
+    edit.disabled = remove.disabled = shop.busy || sending;
+    buttons.append(edit, remove);
+    row.append(caption, buttons);
+    return row;
+  }));
+  if (!shops.length) byId('shop-list').append(element('p', 'Магазинов пока нет.', 'empty'));
+}
+function editShop(shop) {
+  const form = byId('shop-form');
+  form.reset();
+  editing = shop?.id || '';
+  byId('form-title').textContent = editing ? 'Изменить магазин' : 'Добавить магазин';
+  byId('shop-name').value = shop?.name || '';
+  byId('shop-token').required = !editing;
+  byId('shop-token').placeholder = editing ? 'Оставь пустым, чтобы сохранить текущий' : '';
+  byId('cancel').hidden = !editing;
+  byId('clear-content-row').hidden = !shop?.hasContentToken;
+  if (editing) byId('shop-name').focus();
+}
+
+function apply(state) {
+  shops = state.shops;
+  exchange = state.exchange;
+  const existing = new Set(shops.map(shop => shop.id));
+  const valid = new Set(shops.flatMap(shop => (shop.orders || []).map(order => shop.id + '/' + order.id)));
+  for (const key of picked) {
+    const shop = shops.find(item => item.id === key.split('/')[0]);
+    if (!shop || shop.updatedAt && !valid.has(key)) picked.delete(key);
+  }
+  if (filter !== null) filter = filter.filter(id => existing.has(id));
+  const busy = shops.some(shop => shop.busy);
+  if (section !== 'vds') {
+    byId('refresh').disabled = !shops.length || busy || sending;
+    byId('refresh').textContent = busy ? 'Обновляется…' : 'Обновить заказы';
+  }
+  if (section === 'dashboard') renderDashboard();
+  if (section === 'assembly') renderAssembly();
+  if (section === 'shops') renderShops();
+}
+
+async function diagnostics() {
+  if (diagnosticBusy) return;
+  diagnosticBusy = true;
+  const button = byId('refresh');
+  button.disabled = true;
+  button.textContent = 'Проверяю…';
+  const badge = byId('vds-badge');
+  badge.classList.remove('ok');
+  badge.textContent = 'Проверка…';
+  showError();
+  try {
+    const data = await request('/api/vds', {});
+    const { geo, wb } = data;
+    const hk = geo?.country === 'HK';
+    byId('vds-location').textContent = [geo?.city, geo?.country].filter(Boolean).join(' · ') || 'Геолокация недоступна';
+    byId('vds-endpoint').textContent = data.host + ':' + data.port + ' · проверено ' + date(data.checkedAt);
+    badge.textContent = data.sshMs == null ? 'Ошибка SSH' : hk ? 'IPv4 подтверждён · HK' : 'IPv4 HK не подтверждён';
+    badge.classList.toggle('ok', hk);
+    const times = data.icmp.samples;
+    const ping = times.length ? Math.round(times.reduce((sum, ms) => sum + ms, 0) / times.length) + ' мс · ' + times.length + '/3' : 'Нет ответа';
+    const metrics = [['ICMP-пинг', ping], ['TCP до SSH', data.tcpMs == null ? 'Нет ответа' : data.tcpMs + ' мс'],
+      ['Проверка SSH и маршрута', data.sshMs == null ? 'Не удалась' : data.sshMs + ' мс'], ['WB API с VDS', wb ? 'HTTP ' + wb.status + ' · ' + wb.ms + ' мс' : 'Нет ответа']];
+    byId('vds-metrics').replaceChildren(...metrics.map(([label, value]) => {
+      const item = element('div', null, 'glass metric');
+      item.append(element('span', label, 'muted'), element('strong', value));
+      return item;
+    }));
+    const details = [['Внешний IPv4', geo?.ip], ['Город', geo?.city], ['Регион', geo?.region], ['Код территории', geo?.country],
+      ['Сеть и ASN', geo?.org], ['DNS-имя', geo?.hostname], ['Часовой пояс', geo?.timezone], ['Координаты', geo?.loc]];
+    byId('vds-details').replaceChildren(...details.map(([label, value]) => {
+      const item = element('div');
+      item.append(element('dt', label), element('dd', value || '—'));
+      return item;
+    }));
+  } catch (error) {
+    badge.textContent = 'Ошибка проверки';
+    showError(error.message);
+  } finally {
+    diagnosticBusy = false;
+    button.disabled = false;
+    button.textContent = 'Проверить ещё раз';
+  }
+}
+
+async function previewSupplies() {
+  if (previewBusy) return;
+  previewBusy = true;
+  const button = byId('preview-supplies');
+  const status = byId('supply-status');
+  button.disabled = true;
+  try {
+    const { groups, missing } = await request('/api/plan', { keys: [...picked] });
+    status.textContent = groups.length ? 'Групп: ' + groups.length + '. Предпросмотр · запись в WB отключена.' :
+      (picked.size ? 'Выбранные заказы сейчас не найдены в очереди. Обнови заказы и проверь выбор.' : 'Выбери заказы на странице «Сборка».');
+    if (groups.length && missing.length) status.textContent += ' Больше не в очереди: ' + missing.length + '.';
+    byId('supply-items').replaceChildren(...groups.map(group => {
+      const item = element('article', null, 'glass card');
+      item.append(element('h2', group.shop), element('strong', group.displayName || group.name),
+        element('small', 'Склад ' + (group.warehouseId ?? '—') + ' · заданий ' + group.orderIds.length),
+        element('p', group.orderIds.join(', '), 'supply-list muted'),
+        element('small', group.stale ? 'Заказы устарели. Обнови магазин перед отправкой.' : group.incomplete ?
+          'Для отправки нужно уточнить параметры совместимости в WB.' : 'При отправке будет проверена открытая поставка на сегодня.', group.stale || group.incomplete ? 'warning' : ''));
+      return item;
+    }));
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    previewBusy = false;
+    button.disabled = false;
+  }
+}
+async function request(url, input) {
+  const options = input === undefined ? {} : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  };
+  const response = await fetch(url, options);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error);
+  return data;
+}
+async function sync() {
+  if (syncing || sending) return;
+  syncing = true;
+  try {
+    const state = await request('/api/state');
+    if (!sending) apply(state);
+    if (systemError) { systemError = ''; showError(); }
+  } catch {
+    systemError = 'Локальная панель недоступна. Проверь, запущен ли сервер.';
+    showError(systemError);
+  } finally {
+    syncing = false;
+  }
+}
+async function mutate(url, input) {
+  if (sending) return false;
+  sending = true;
+  byId('save').disabled = true;
+  byId('refresh').disabled = true;
+  showError();
+  try {
+    const state = await request(url, input);
+    sending = false;
+    apply(state);
+    return true;
+  } catch (error) {
+    showError(error.message);
+    return false;
+  } finally {
+    sending = false;
+    byId('save').disabled = false;
+    byId('refresh').disabled = !shops.length || shops.some(shop => shop.busy);
+  }
+}
+byId('refresh').addEventListener('click', () => section === 'vds' ? diagnostics() : mutate('/api/refresh', {}));
+byId('preview-supplies').addEventListener('click', previewSupplies);
+for (const control of document.querySelectorAll('[data-sort]')) control.addEventListener('click', () => {
+  const key = control.dataset.sort;
+  sort = { key, direction: sort.key === key ? -sort.direction : 1 };
+  store('wb-fbs-sort', sort);
+  renderAssembly();
+});
+byId('select-visible').addEventListener('click', () => setVisibleSelection(true));
+byId('select-all').addEventListener('change', event => setVisibleSelection(event.target.checked));
+byId('clear-selection').addEventListener('click', () => { picked.clear(); renderAssembly(); });
+byId('cancel').addEventListener('click', () => editShop());
+byId('shop-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (await mutate('/api/shop', {
+    id: editing, name: byId('shop-name').value, token: byId('shop-token').value.trim(),
+    contentToken: byId('content-token').value.trim(), clearContentToken: byId('clear-content').checked,
+  })) editShop();
+});
+if (section === 'vds') diagnostics();
+if (section === 'supplies') previewSupplies();
+if (section !== 'vds') sync();
+setInterval(() => { if (shops.some(shop => shop.busy)) sync(); }, 1800);
+if (section !== 'vds') setInterval(sync, 12000);
+if (section === 'assembly') setInterval(() => {
+  for (const timer of document.querySelectorAll('[data-created]')) timer.textContent = age(timer.dataset.created);
+}, 15000);
+</script>
+</body>
+</html>

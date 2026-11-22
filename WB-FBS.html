@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Заказы WB · FBS</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f4f8;color:#241e2d;font:15px system-ui,sans-serif}main{max-width:980px;margin:48px auto;padding:0 20px}h1{margin:0;font-size:36px}p{color:#554d61;line-height:1.5}section{background:white;border:1px solid #e5e0eb;border-radius:16px;padding:22px;margin:18px 0}summary{cursor:pointer;font-weight:650}textarea{display:block;width:100%;min-height:110px;margin:12px 0;padding:10px;font:inherit}button,select{font:inherit;border:1px solid #dcd5e5;border-radius:8px;padding:8px 12px;background:white;color:inherit}button{cursor:pointer}button.primary{background:#652bb0;color:white;border-color:#652bb0}.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}table{border-collapse:collapse;width:100%;margin-top:16px;text-align:left}th,td{padding:10px;border-bottom:1px solid #eee9f3}th{color:#554d61}#notice{min-height:1.5em;margin-bottom:0}.scroll{overflow:auto}
+</style>
+<main>
+<h1>Заказы WB · FBS</h1>
+<p>Общая очередь для четырёх магазинов. Эта HTML-страница работает с вручную добавленными заказами. Отметки о сборке сохраняются в текущем браузере и не отправляются в WB.</p>
+<section>
+<details open>
+<summary>Добавить заказы</summary>
+<p>Вставь строки из Excel без заголовков. Порядок столбцов — магазин, номер заказа, артикул. Артикул можно оставить пустым.</p>
+<textarea id="input" aria-label="Строки заказов" placeholder="Магазин 1&#9;123456789&#9;ART-001"></textarea>
+<button id="add" class="primary">Добавить в очередь</button>
+</details>
+<p id="notice" role="status"></p>
+</section>
+<section>
+<div class="toolbar">
+<label>Магазин <select id="shop"></select></label>
+<label>Статус <select id="status"><option value="">Все</option><option>Новый</option><option>В сборке</option><option>Собран</option></select></label>
+<span id="count"></span>
+</div>
+<div class="scroll"><table>
+<thead><tr><th>Магазин</th><th>Номер заказа</th><th>Артикул</th><th>Статус сборки</th></tr></thead>
+<tbody id="rows"></tbody>
+</table></div>
+</section>
+</main>
+<script>
+const key = 'wb-fbs-local-orders-v1';
+const byId = id => document.getElementById(id);
+const notice = byId('notice');
+const statuses = ['Новый', 'В сборке', 'Собран'];
+let orders = [];
+try {
+  orders = JSON.parse(localStorage.getItem(key) || '[]');
+} catch {
+  notice.textContent = 'Хранилище браузера недоступно или данные не удалось прочитать.';
+}
+function save(next) {
+  try {
+    localStorage.setItem(key, JSON.stringify(next));
+  } catch {
+    notice.textContent = 'Браузер не смог сохранить заказы.';
+    return false;
+  }
+  orders = next;
+  render();
+  return true;
+}
+function render() {
+  const shop = byId('shop');
+  const selectedShop = shop.value;
+  shop.replaceChildren(new Option('Все', ''), ...[...new Set(orders.map(order => order.shop))]
+    .sort((a, b) => a.localeCompare(b, 'ru')).map(name => new Option(name, name)));
+  shop.value = selectedShop;
+  const filterStatus = byId('status').value;
+  const body = byId('rows');
+  body.replaceChildren();
+  const visible = orders.filter(order => (!shop.value || shop.value === order.shop)
+    && (!filterStatus || order.status === filterStatus));
+  byId('count').textContent = visible.length + ' из ' + orders.length;
+  for (const order of visible) {
+    const row = body.insertRow();
+    for (const value of [order.shop, order.id, order.article]) row.insertCell().textContent = value;
+    const control = document.createElement('select');
+    control.setAttribute('aria-label', 'Статус заказа ' + order.id);
+    control.append(...statuses.map(status => new Option(status, status)));
+    control.value = order.status;
+    control.onchange = () => {
+      if (!save(orders.map(item => item === order ? {...item, status: control.value} : item))) {
+        control.value = order.status;
+      }
+    };
+    row.insertCell().append(control);
+  }
+  if (!visible.length) {
+    const cell = body.insertRow().insertCell();
+    cell.colSpan = 4;
+    cell.textContent = 'В этом списке пока нет заказов.';
+  }
+}
+byId('add').onclick = () => {
+  const input = byId('input');
+  const lines = input.value.split(/\r?\n/).filter(line => line.trim());
+  if (!lines.length) {
+    notice.textContent = 'Вставь хотя бы одну строку с заказом.';
+    return;
+  }
+  const next = [...orders];
+  for (const [index, line] of lines.entries()) {
+    const [shop, id, article = ''] = line.split('\t').map(value => value.trim());
+    if (!shop || !/^\d+$/.test(id || '')) {
+      notice.textContent = 'Проверь магазин и номер заказа в строке ' + (index + 1) + '.';
+      return;
+    }
+    if (!next.some(order => order.shop === shop && order.id === id)) {
+      next.push({shop, id, article, status: statuses[0]});
+    }
+  }
+  const added = next.length - orders.length;
+  if (save(next)) {
+    input.value = '';
+    notice.textContent = 'Добавлено заказов: ' + added + '. Повторов пропущено: ' + (lines.length - added) + '.';
+  }
+};
+byId('shop').onchange = render;
+byId('status').onchange = render;
+render();
+</script>
+</html>

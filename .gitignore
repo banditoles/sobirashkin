@@ -1,0 +1,6 @@
+vds.local.json
+.env
+*.dpapi
+*.pem
+*.key
+node_modules/
