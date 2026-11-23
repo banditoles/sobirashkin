@@ -60,10 +60,12 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     mask-composite:intersect;
   }
   .glass.shader-backed::after { display:none; }
-  .glass.shader-backed {
+  .shader-backed {
     background:linear-gradient(175deg,#e0c0ff0b,transparent 52%,#21133318);
-    box-shadow:inset 0 1px 1px #efe1ff32, inset 0 -1px 1px #dac2f21c;
+    box-shadow:none;
+    backdrop-filter:none;
   }
+  .glass.shader-backed,.table-wrap.shader-backed { border-radius:40px; }
   .shop-row { background-color:#68458b21; }
   .shop-row { margin-top:10px; padding:12px; border:1px solid transparent; border-radius:13px; }
   nav a,.logo b,button,.button,.filter,input:not([type=checkbox]),.pill,.thumb {
@@ -91,6 +93,13 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
   tbody tr:hover,tbody tr[data-selected] { background:#c184fc2c; }
   tbody tr:last-child td { border-bottom:0; }
   .order-tooltip { background-color:#251137d9; }
+  header.shader-backed,.table-wrap.shader-backed,.order-tooltip.shader-backed,
+  nav a.shader-backed,button.shader-backed,.button.shader-backed,.filter.shader-backed,input.shader-backed {
+    background:linear-gradient(165deg,#efe1ff17,transparent 60%,#170c2617);
+    box-shadow:none; backdrop-filter:none;
+  }
+  nav a[aria-current].shader-backed,.primary.shader-backed { background:#8f4cd64a; }
+  .shader-backed:disabled { opacity:.55; }
   [data-glass-lit] { position:relative; isolation:isolate; }
   [data-glass-lit]::before {
     content:''; position:absolute; z-index:-1; inset:0; border-radius:inherit; pointer-events:none;
@@ -642,15 +651,6 @@ if (section === 'assembly') setInterval(() => {
     }
   });
   const fallback = document.getElementById('ambient-ink');
-  const signature = document.createElement('canvas');
-  signature.width = 512;
-  signature.height = 256;
-  const mask = signature.getContext('2d');
-  mask.font = '900 174px system-ui, sans-serif';
-  mask.textAlign = 'center';
-  mask.textBaseline = 'middle';
-  mask.fillStyle = 'white';
-  mask.fillText('fnrk', 256, 126, 416);
   const ink = fallback.getContext('2d');
   const surface = fallback.cloneNode();
   let shader = createInkShader(surface);
@@ -688,8 +688,6 @@ if (section === 'assembly') setInterval(() => {
       uniform float time;
       uniform float hue;
       uniform float wide;
-      uniform float reveal;
-      uniform sampler2D signatureMask;
 
       vec3 colorWheel(float h) {
         vec3 stops = fract(h + vec3(0.0, .6667, .3333));
@@ -699,11 +697,6 @@ if (section === 'assembly') setInterval(() => {
       vec2 distort(vec2 point, float phase) {
         return point + vec2(sin(point.y * 4.8 + phase) + .46 * sin(point.x * 8.0 - phase),
           cos(point.x * 3.7 - phase) + .46 * sin(point.y * 7.0 + phase)) * .073;
-      }
-
-      float signatureInk(vec2 uv) {
-        if (uv.x <= 0.0 || uv.y <= 0.0 || uv.x >= 1.0 || uv.y >= 1.0) return 0.0;
-        return texture2D(signatureMask, uv).a;
       }
 
       void main() {
@@ -736,21 +729,13 @@ if (section === 'assembly') setInterval(() => {
         float rimLight = .26 + .74 * pow(.5 + .5 * cos(innerAngle - time * .52 + .8), 2.0);
         float outline = exp(-abs(innerDistance) * 44.0) * rimLight;
         float innerGlow = exp(-abs(innerDistance) * 13.0) * rimLight;
-        vec2 glyph = mix(point, distort(point, time * .7 + 2.0), .36) * vec2(.57,-1.14) + .5;
-        vec2 bleed = vec2(.012,.024);
-        float letters = 0.0;
-        if (reveal > 0.0) {
-          letters = signatureInk(glyph) * .48 + .13 * (signatureInk(glyph + bleed) + signatureInk(glyph - bleed)
-            + signatureInk(glyph + vec2(bleed.x,-bleed.y)) + signatureInk(glyph + vec2(-bleed.x,bleed.y)));
-        }
-        float silhouette = mix(cloud, smoothstep(.11,.86,letters), reveal);
 
         vec3 cool = colorWheel(hue + .022);
         vec3 warm = colorWheel(hue - .033);
         float mixAmount = .5 + .5 * sin(p.x * 3.2 + p.y * 2.0 + time * .36);
         vec3 color = mix(cool, warm, mixAmount);
-        color = mix(color, vec3(1.0, .95, 1.0), clamp(.10 + outline * (.47 - .35 * reveal) + letters * reveal * .30, 0.0, .72));
-        float alpha = clamp(haze * .19 + silhouette * .68 + (rays * .50 + innerGlow * .20 + outline * .18) * (1.0 - reveal), 0.0, .91);
+        color = mix(color, vec3(1.0, .95, 1.0), clamp(.10 + outline * .47 + innerGlow * .14, 0.0, .72));
+        float alpha = clamp(haze * .19 + cloud * .68 + rays * .50 + innerGlow * .20 + outline * .18, 0.0, .91);
         vec2 screenUV = gl_FragCoord.xy / viewport;
         vec2 left = (screenUV - vec2(.065, .57 + .036 * sin(time * .34))) * vec2(7.2, 1.95);
         vec2 right = (screenUV - vec2(.94, .37 + .044 * cos(time * .29))) * vec2(6.3, 2.3);
@@ -792,17 +777,10 @@ if (section === 'assembly') setInterval(() => {
     const position = gl.getAttribLocation(program, 'position');
     gl.enableVertexAttribArray(position);
     gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
-    const uniforms = Object.fromEntries(['center', 'pull', 'viewport', 'size', 'time', 'hue', 'wide', 'reveal', 'signatureMask']
+    const uniforms = Object.fromEntries(['center', 'pull', 'viewport', 'size', 'time', 'hue', 'wide']
       .map(name => [name, gl.getUniformLocation(program, name)]));
-    const texture = gl.createTexture();
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, signature);
-    gl.uniform1i(uniforms.signatureMask, 0);
     element.dataset.renderer = 'webgl';
-    return (x, y, radius, seconds, degrees, pointerX, pointerY, wide, reveal) => {
+    return (x, y, radius, seconds, degrees, pointerX, pointerY, wide) => {
       gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
       gl.uniform2f(uniforms.center, x * scale, gl.drawingBufferHeight - y * scale);
       gl.uniform2f(uniforms.pull, pointerX, -pointerY);
@@ -811,7 +789,6 @@ if (section === 'assembly') setInterval(() => {
       gl.uniform1f(uniforms.time, seconds);
       gl.uniform1f(uniforms.hue, degrees / 360);
       gl.uniform1f(uniforms.wide, wide);
-      gl.uniform1f(uniforms.reveal, reveal);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
   }
@@ -865,10 +842,8 @@ if (section === 'assembly') setInterval(() => {
     const radius = Math.min(width * .52, height * (.56 + .05 * wide), 530 + 85 * wide);
     const x = width * .52 + (still ? 0 : Math.sin(time * .36) * radius * .24 + drift.x * radius * .33);
     const y = height * (.40 + .07 * wide) + (still ? 0 : Math.cos(time * .43) * radius * .19 + drift.y * radius * .28);
-    const cycle = time % 42;
-    const reveal = still || cycle < 32 || cycle > 38 ? 0 : Math.min(1, Math.sin((cycle - 32) / 6 * Math.PI) * 1.22);
     if (shader) {
-      shader(x, y, radius, time, hue, still ? 0 : drift.x, still ? 0 : drift.y, wide, reveal);
+      shader(x, y, radius, time, hue, still ? 0 : drift.x, still ? 0 : drift.y, wide);
       return;
     }
     if (!ink) return;
@@ -895,7 +870,6 @@ if (section === 'assembly') setInterval(() => {
     ink.fillRect(0, 0, width, height);
 
     // Long, diffuse rays and a smaller luminous contour drift out of phase.
-    ink.globalAlpha = 1 - reveal;
     ink.filter = 'blur(' + Math.max(3, radius * .025 * scale) + 'px)';
     layer(time, x, y, radius * .76, -.48 + Math.sin(time * .38) * .23, .79, 1.4, .88,
       [[0, tint(-14, 52, .63)], [.52, tint(1, 48, .49)], [.78, tint(13, 42, .20)], [1, tint(24, 34, 0)]]);
@@ -904,15 +878,6 @@ if (section === 'assembly') setInterval(() => {
       radius * .39, .47 - Math.sin(time * .56) * .36, .84, .3, .20,
       [[0, tint(11, 67, .19)], [.66, tint(4, 66, .16)], [1, tint(-9, 65, .03)]],
       [[0, tint(-10, 82, .08)], [.34, tint(10, 84, .62)], [.66, tint(-5, 80, .37)], [1, tint(6, 80, .07)]]);
-    if (reveal) {
-      mask.globalCompositeOperation = 'source-in';
-      mask.fillStyle = tint(0, 64, 1);
-      mask.fillRect(0, 0, signature.width, signature.height);
-      ink.globalAlpha = reveal * .86;
-      ink.filter = 'blur(' + Math.max(3, radius * .022 * scale) + 'px)';
-      ink.drawImage(signature, x - radius * .86, y - radius * .43, radius * 1.72, radius * .86);
-    }
-    ink.globalAlpha = 1;
     ink.filter = 'none';
   }
 
@@ -972,32 +937,49 @@ if (section === 'assembly') setInterval(() => {
 if (!matchMedia('(forced-colors: active)').matches) {
   import('/liquidglass-v1.0.3.mjs').then(async ({ LiquidGlass }) => {
     const stage = document.getElementById('glass-stage');
-    const slots = Array.from({length:8}, () => {
+    const preset = {blurAmount:.03, refraction:.69, chromAberration:.05, edgeHighlight:.05,
+      specular:0, fresnel:1, distortion:0, cornerRadius:40, zRadius:40, opacity:1,
+      saturation:0, brightness:0, shadowOpacity:.3, shadowSpread:19, bevelMode:0};
+    const glassSelector = 'header,main .glass,.table-wrap,.order-tooltip';
+    const buttonSelector = 'nav a,main a.button,main button:not(:disabled),main input:not(:disabled):not([type=hidden])';
+    const makeSlots = (count, button) => Array.from({length:count}, () => {
       const slot = document.createElement('div');
       slot.className = 'glass-proxy';
+      slot.dataset.config = JSON.stringify({button});
       stage.append(slot);
       return slot;
     });
-    const preset = {blurAmount:0, cornerRadius:21, edgeHighlight:.05, shadowOpacity:.05};
+    const panels = makeSlots(12, false);
+    const buttons = makeSlots(48, true);
+    const bindings = new Map();
+    let pressed;
+    let hovered;
     let visible = [];
     let pendingLayout = false;
     let effect;
     const layout = () => {
       pendingLayout = false;
       for (const panel of visible) panel.classList.remove('shader-backed');
-      visible = [...document.querySelectorAll('main .glass')].filter(panel => {
+      visible = [];
+      bindings.clear();
+      const inViewport = panel => {
         const rect = panel.getBoundingClientRect();
         return rect.width > 10 && rect.height > 10 && rect.bottom > 0 && rect.top < innerHeight;
-      }).slice(0, slots.length);
-      for (const [index, slot] of slots.entries()) {
-        const panel = visible[index];
-        if (!panel) {
-          slot.style.cssText = 'left:-999px;width:1px;height:1px';
-          continue;
+      };
+      for (const [slots, selector] of [[panels,glassSelector],[buttons,buttonSelector]]) {
+        const targets = [...document.querySelectorAll(selector)].filter(inViewport);
+        for (const [index, slot] of slots.entries()) {
+          const panel = targets[index];
+          if (!panel) {
+            slot.style.cssText = 'left:-999px;width:1px;height:1px';
+            continue;
+          }
+          const {left, top, width, height} = panel.getBoundingClientRect();
+          slot.style.cssText = 'left:' + left + 'px;top:' + top + 'px;width:' + width + 'px;height:' + height + 'px';
+          visible.push(panel);
+          if (slots === buttons) bindings.set(panel, slot);
+          if (effect) panel.classList.add('shader-backed');
         }
-        const {left, top, width, height} = panel.getBoundingClientRect();
-        slot.style.cssText = 'left:' + left + 'px;top:' + top + 'px;width:' + width + 'px;height:' + height + 'px';
-        if (effect) panel.classList.add('shader-backed');
       }
       effect?.markChanged();
     };
@@ -1007,11 +989,35 @@ if (!matchMedia('(forced-colors: active)').matches) {
       requestAnimationFrame(layout);
     };
     layout();
-    effect = await LiquidGlass.init({root:stage, glassElements:slots, defaults:preset});
+    effect = await LiquidGlass.init({root:stage, glassElements:[...panels,...buttons], defaults:preset});
     layout();
     const main = document.querySelector('main');
     new ResizeObserver(schedule).observe(main);
-    new MutationObserver(schedule).observe(main, {childList:true, subtree:true, attributes:true, attributeFilter:['hidden']});
+    const observer = new MutationObserver(schedule);
+    observer.observe(main, {childList:true, subtree:true, attributes:true, attributeFilter:['hidden','disabled']});
+    observer.observe(document.getElementById('order-tooltip'), {attributes:true, attributeFilter:['hidden','style']});
+    const buttonAt = node => node instanceof Element ? node.closest(buttonSelector) : null;
+    const send = (slot, type) => slot?.dispatchEvent(new PointerEvent(type));
+    document.addEventListener('pointerover', event => {
+      const target = buttonAt(event.target);
+      if (target === buttonAt(event.relatedTarget)) return;
+      send(hovered, 'pointerout');
+      hovered = bindings.get(target);
+      send(hovered, 'pointerover');
+    });
+    document.addEventListener('pointerout', event => {
+      if (buttonAt(event.target) === buttonAt(event.relatedTarget)) return;
+      send(hovered, 'pointerout');
+      hovered = null;
+    });
+    document.addEventListener('pointerdown', event => {
+      pressed = bindings.get(buttonAt(event.target));
+      send(pressed, 'pointerdown');
+    });
+    for (const type of ['pointerup','pointercancel']) window.addEventListener(type, () => {
+      send(pressed, type);
+      pressed = null;
+    });
     window.addEventListener('scroll', schedule, {passive:true});
     window.addEventListener('resize', schedule, {passive:true});
   }).catch(error => console.warn('Regular Glass fallback:', error));
