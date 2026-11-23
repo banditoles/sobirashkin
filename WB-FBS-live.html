@@ -36,15 +36,15 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
   :root {
     --glass-fill: linear-gradient(155deg,#f0dbff20 0%,#a76de820 28%,#21133024 62%,#10091970 100%);
     --glass-edge: transparent;
-    --glass-light: inset 0 -1px 2px #180b2650;
-    --glass-shadow: 0 10px 28px #08041158;
+    --glass-light: 0 0 24px #ab66ec26;
+    --glass-shadow: 0 8px 36px #773baa20;
   }
   header,.glass,.order-tooltip {
     background: var(--glass-fill), #170d233d;
     border-color: var(--glass-edge);
     box-shadow: var(--glass-light), var(--glass-shadow);
-    backdrop-filter: blur(12px) saturate(155%);
-    backdrop-filter: url(#glass-refraction) blur(9px) saturate(155%);
+    backdrop-filter: blur(22px) saturate(155%);
+    backdrop-filter: url(#glass-refraction) blur(18px) saturate(155%);
   }
   header { background-color:#1d102c60; }
   .glass { border-radius:21px; }
@@ -55,8 +55,8 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
   nav a,.logo b,button,.button,.filter,input:not([type=checkbox]),.pill,.thumb {
     background: linear-gradient(165deg,#f0daff35,#b36bec1c 40%,#351a4c55 72%,#e5b9ff16), #20102e70;
     border:1px solid transparent;
-    box-shadow: inset 0 -1px 1px #28163d70, 0 3px 9px #0a041d45;
-    backdrop-filter: blur(8px) saturate(142%);
+    box-shadow: 0 0 14px #ab66ec26;
+    backdrop-filter: blur(13px) saturate(142%);
   }
   nav a,.logo b,button,.button,.filter,.pill { border-radius:999px; }
   nav a { color:#f2e8fc; }
@@ -71,12 +71,25 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
   input:not([type=checkbox]) { border-radius:12px; }
   input[type=checkbox] { accent-color:#b87bf4; }
   .sort,.sort:hover { background:transparent; box-shadow:none; border:0; backdrop-filter:none; }
-  .table-wrap { border:1px solid transparent; border-radius:15px; background:#130a1b4d; }
+  .table-wrap { border:1px solid transparent; border-radius:15px; background:#43265e22; }
   thead { background:linear-gradient(180deg,#f4d8ff23,#8f58c313); }
   th,td { border-color:#e5c6fa26; }
   tbody tr:hover,tbody tr[data-selected] { background:#c184fc2c; }
   tbody tr:last-child td { border-bottom:0; }
   .order-tooltip { background-color:#251137d9; }
+  [data-glass-lit] { position:relative; isolation:isolate; }
+  [data-glass-lit]::before {
+    content:''; position:absolute; z-index:-1; inset:0; border-radius:inherit; pointer-events:none;
+    background:radial-gradient(ellipse 110px 76px at var(--light-x,50%) var(--light-y,50%),#e7bdff65,#ae6efa21 59%,transparent 100%);
+    opacity:0; transition:opacity .22s ease;
+  }
+  [data-glass-lit]:hover::before,[data-glass-lit]:focus-visible::before { opacity:1; }
+  #ink-signature {
+    position:fixed; z-index:-1; inset:auto; pointer-events:none; color:var(--ink-signature-color,#b884ff);
+    font:900 clamp(55px,15vmin,190px)/1 system-ui,sans-serif; letter-spacing:-.09em;
+    opacity:0; transform:translate(-53%,-50%); text-shadow:0 0 .13em currentColor,0 0 .35em currentColor;
+  }
+  @media (prefers-reduced-motion: reduce) { [data-glass-lit]::before { transition:none; } #ink-signature { display:none; } }
   @media (forced-colors: active) {
     header,.glass,.order-tooltip,nav a,.logo b,button,.button,.filter,input:not([type=checkbox]),.pill,.thumb {
       backdrop-filter:none; box-shadow:none;
@@ -93,6 +106,7 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
   </filter>
 </svg>
 <canvas id="ambient-ink" aria-hidden="true"></canvas>
+<div id="ink-signature" aria-hidden="true">fnrk</div>
 <header><div class="header"><div class="logo"><b>WB</b>Собирашкин</div><nav aria-label="Разделы"><a href="/">Сводка</a><a href="/assembly">Сборка</a><a href="/supplies">Поставки</a><a href="/shops">Магазины</a><a href="/vds">VDS</a></nav></div></header>
 <main>
   <div class="heading">
@@ -604,7 +618,23 @@ if (section === 'assembly') setInterval(() => {
 </script>
 <script>
 (() => {
+  const glassSelector = 'header,.glass,nav a,button:not(.sort),.button,.filter,.pill,.thumb';
+  document.addEventListener('pointermove', event => {
+    if (!(event.target instanceof Element)) return;
+    const surface = event.target.closest(glassSelector);
+    if (!surface) return;
+    const bounds = surface.getBoundingClientRect();
+    surface.setAttribute('data-glass-lit', '');
+    surface.style.setProperty('--light-x', (event.clientX - bounds.left) + 'px');
+    surface.style.setProperty('--light-y', (event.clientY - bounds.top) + 'px');
+  }, { passive:true });
+  document.addEventListener('focusin', event => {
+    if (event.target instanceof Element && event.target.matches(glassSelector)) {
+      event.target.setAttribute('data-glass-lit', '');
+    }
+  });
   const fallback = document.getElementById('ambient-ink');
+  const signature = document.getElementById('ink-signature');
   const ink = fallback.getContext('2d');
   const surface = fallback.cloneNode();
   let shader = createInkShader(surface);
@@ -655,11 +685,14 @@ if (section === 'assembly') setInterval(() => {
 
       void main() {
         vec2 point = (gl_FragCoord.xy - center) / size;
-        vec2 p = distort(point, time * .51);
+        float shape = .5 + .5 * sin(time * .39);
+        float stretch = .5 + .5 * cos(time * .27 + 1.0);
+        vec2 p = distort(point * vec2(mix(.78,1.22,stretch),mix(1.23,.79,stretch)), time * .51);
         float angle = atan(p.y, p.x + .0001);
         float radius = length(p);
-        float lobes = .58 + .098 * sin(angle * 3.0 + time * .58)
-          + .065 * cos(angle * 5.0 - time * .39);
+        float petals = .15 * sin(angle * 4.0 + time * .29) + .046 * cos(angle * 7.0 - time * .43);
+        float folded = .18 * sin(angle * 2.0 - .85 + time * .20) + .10 * cos(angle * 3.0 + time * .53);
+        float lobes = .55 + mix(petals, folded, smoothstep(.18,.82,shape));
         float cloud = 1.0 - smoothstep(-.11, .14, radius - lobes);
         float phase = angle + .045 * sin(radius * 6.0 - time * .55);
         float alignment = .5 + .5 * cos(phase * 9.0 + time * .34);
@@ -674,8 +707,8 @@ if (section === 'assembly') setInterval(() => {
         vec2 loop = distort(point + vec2(.13 + .09 * sin(time * .42),
           -.08 + .10 * cos(time * .46)), -time * .36 + 1.7);
         float innerAngle = atan(loop.y, loop.x + .0001);
-        float innerRadius = .265 + .073 * sin(innerAngle * 3.0 - time * .61)
-          + .033 * cos(innerAngle * 5.0 + time * .46);
+        float innerRadius = .265 + mix(.065 * sin(innerAngle * 3.0 - time * .61),
+          .087 * cos(innerAngle * 5.0 + time * .46),shape) + .025 * sin(innerAngle * 2.0 + time * .52);
         float innerDistance = length(loop) - innerRadius;
         float rimLight = .26 + .74 * pow(.5 + .5 * cos(innerAngle - time * .52 + .8), 2.0);
         float outline = exp(-abs(innerDistance) * 44.0) * rimLight;
@@ -791,6 +824,15 @@ if (section === 'assembly') setInterval(() => {
     const radius = Math.min(width * .52, height * (.56 + .05 * wide), 530 + 85 * wide);
     const x = width * .52 + (still ? 0 : Math.sin(time * .36) * radius * .24 + drift.x * radius * .33);
     const y = height * (.40 + .07 * wide) + (still ? 0 : Math.cos(time * .43) * radius * .19 + drift.y * radius * .28);
+    const cycle = time % 42;
+    const reveal = still || cycle < 32 || cycle > 38 ? 0 : Math.pow(Math.sin((cycle - 32) / 6 * Math.PI), 1.35);
+    canvas.style.opacity = String(1 - reveal * .82);
+    signature.style.opacity = String(reveal * .87);
+    if (reveal) {
+      signature.style.left = x + 'px';
+      signature.style.top = y + 'px';
+      signature.style.setProperty('--ink-signature-color', 'hsl(' + hue + ',94%,73%)');
+    }
     if (shader) {
       shader(x, y, radius, time, hue, still ? 0 : drift.x, still ? 0 : drift.y, wide);
       return;
