@@ -34,28 +34,35 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
 </style>
 <style>
   :root {
-    --glass-fill: linear-gradient(155deg,#f0dbff20 0%,#a76de820 28%,#21133024 62%,#10091970 100%);
+    --glass-fill: linear-gradient(155deg,#f0dbff1c 0%,#a76de81b 30%,#7b53a20d 67%,#9876bd0a 100%);
     --glass-edge: transparent;
-    --glass-light: 0 0 24px #ab66ec26;
-    --glass-shadow: 0 8px 36px #773baa20;
   }
   header,.glass,.order-tooltip {
-    background: var(--glass-fill), #170d233d;
+    background: var(--glass-fill);
     border-color: var(--glass-edge);
-    box-shadow: var(--glass-light), var(--glass-shadow);
+    box-shadow: none;
     backdrop-filter: blur(22px) saturate(155%);
     backdrop-filter: url(#glass-refraction) blur(18px) saturate(155%);
   }
-  header { background-color:#1d102c60; }
-  .glass { border-radius:21px; }
-  .panel,.shop-row { background-color:#140b2055; }
-  .metric,.card { background-color:#1d102c45; }
-  .diagnostic-hero { background-color:#3a195a58; }
+  header { background-color:#6c4c8b12; }
+  .glass {
+    position:relative; isolation:isolate; border-radius:21px; background:transparent; backdrop-filter:none;
+  }
+  .glass::after {
+    content:''; position:absolute; inset:0; z-index:-2; border-radius:inherit; pointer-events:none;
+    background:var(--glass-fill),#60438225;
+    backdrop-filter:blur(22px) saturate(155%);
+    backdrop-filter:url(#glass-refraction) blur(18px) saturate(155%);
+    mask-image:linear-gradient(90deg,transparent,black 12px,black calc(100% - 12px),transparent),
+      linear-gradient(180deg,transparent,black 12px,black calc(100% - 12px),transparent);
+    mask-composite:intersect;
+  }
+  .shop-row { background-color:#68458b21; }
   .shop-row { margin-top:10px; padding:12px; border:1px solid transparent; border-radius:13px; }
   nav a,.logo b,button,.button,.filter,input:not([type=checkbox]),.pill,.thumb {
-    background: linear-gradient(165deg,#f0daff35,#b36bec1c 40%,#351a4c55 72%,#e5b9ff16), #20102e70;
+    background: linear-gradient(165deg,#f0daff35,#b36bec1c 40%,#975dc62a 72%,#e5b9ff16), #7d58a12a;
     border:1px solid transparent;
-    box-shadow: 0 0 14px #ab66ec26;
+    box-shadow:none;
     backdrop-filter: blur(13px) saturate(142%);
   }
   nav a,.logo b,button,.button,.filter,.pill { border-radius:999px; }
@@ -71,7 +78,7 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
   input:not([type=checkbox]) { border-radius:12px; }
   input[type=checkbox] { accent-color:#b87bf4; }
   .sort,.sort:hover { background:transparent; box-shadow:none; border:0; backdrop-filter:none; }
-  .table-wrap { border:1px solid transparent; border-radius:15px; background:#43265e22; }
+  .table-wrap { border:1px solid transparent; border-radius:15px; background:transparent; }
   thead { background:linear-gradient(180deg,#f4d8ff23,#8f58c313); }
   th,td { border-color:#e5c6fa26; }
   tbody tr:hover,tbody tr[data-selected] { background:#c184fc2c; }
@@ -84,12 +91,7 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     opacity:0; transition:opacity .22s ease;
   }
   [data-glass-lit]:hover::before,[data-glass-lit]:focus-visible::before { opacity:1; }
-  #ink-signature {
-    position:fixed; z-index:-1; inset:auto; pointer-events:none; color:var(--ink-signature-color,#b884ff);
-    font:900 clamp(55px,15vmin,190px)/1 system-ui,sans-serif; letter-spacing:-.09em;
-    opacity:0; transform:translate(-53%,-50%); text-shadow:0 0 .13em currentColor,0 0 .35em currentColor;
-  }
-  @media (prefers-reduced-motion: reduce) { [data-glass-lit]::before { transition:none; } #ink-signature { display:none; } }
+  @media (prefers-reduced-motion: reduce) { [data-glass-lit]::before { transition:none; } }
   @media (forced-colors: active) {
     header,.glass,.order-tooltip,nav a,.logo b,button,.button,.filter,input:not([type=checkbox]),.pill,.thumb {
       backdrop-filter:none; box-shadow:none;
@@ -106,7 +108,6 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
   </filter>
 </svg>
 <canvas id="ambient-ink" aria-hidden="true"></canvas>
-<div id="ink-signature" aria-hidden="true">fnrk</div>
 <header><div class="header"><div class="logo"><b>WB</b>Собирашкин</div><nav aria-label="Разделы"><a href="/">Сводка</a><a href="/assembly">Сборка</a><a href="/supplies">Поставки</a><a href="/shops">Магазины</a><a href="/vds">VDS</a></nav></div></header>
 <main>
   <div class="heading">
@@ -634,7 +635,15 @@ if (section === 'assembly') setInterval(() => {
     }
   });
   const fallback = document.getElementById('ambient-ink');
-  const signature = document.getElementById('ink-signature');
+  const signature = document.createElement('canvas');
+  signature.width = 512;
+  signature.height = 256;
+  const mask = signature.getContext('2d');
+  mask.font = '900 174px system-ui, sans-serif';
+  mask.textAlign = 'center';
+  mask.textBaseline = 'middle';
+  mask.fillStyle = 'white';
+  mask.fillText('fnrk', 256, 126, 416);
   const ink = fallback.getContext('2d');
   const surface = fallback.cloneNode();
   let shader = createInkShader(surface);
@@ -672,6 +681,8 @@ if (section === 'assembly') setInterval(() => {
       uniform float time;
       uniform float hue;
       uniform float wide;
+      uniform float reveal;
+      uniform sampler2D signatureMask;
 
       vec3 colorWheel(float h) {
         vec3 stops = fract(h + vec3(0.0, .6667, .3333));
@@ -681,6 +692,11 @@ if (section === 'assembly') setInterval(() => {
       vec2 distort(vec2 point, float phase) {
         return point + vec2(sin(point.y * 4.8 + phase) + .46 * sin(point.x * 8.0 - phase),
           cos(point.x * 3.7 - phase) + .46 * sin(point.y * 7.0 + phase)) * .073;
+      }
+
+      float signatureInk(vec2 uv) {
+        if (uv.x <= 0.0 || uv.y <= 0.0 || uv.x >= 1.0 || uv.y >= 1.0) return 0.0;
+        return texture2D(signatureMask, uv).a;
       }
 
       void main() {
@@ -713,13 +729,21 @@ if (section === 'assembly') setInterval(() => {
         float rimLight = .26 + .74 * pow(.5 + .5 * cos(innerAngle - time * .52 + .8), 2.0);
         float outline = exp(-abs(innerDistance) * 44.0) * rimLight;
         float innerGlow = exp(-abs(innerDistance) * 13.0) * rimLight;
+        vec2 glyph = mix(point, distort(point, time * .7 + 2.0), .36) * vec2(.57,-1.14) + .5;
+        vec2 bleed = vec2(.012,.024);
+        float letters = 0.0;
+        if (reveal > 0.0) {
+          letters = signatureInk(glyph) * .48 + .13 * (signatureInk(glyph + bleed) + signatureInk(glyph - bleed)
+            + signatureInk(glyph + vec2(bleed.x,-bleed.y)) + signatureInk(glyph + vec2(-bleed.x,bleed.y)));
+        }
+        float silhouette = mix(cloud, smoothstep(.11,.86,letters), reveal);
 
         vec3 cool = colorWheel(hue + .022);
         vec3 warm = colorWheel(hue - .033);
         float mixAmount = .5 + .5 * sin(p.x * 3.2 + p.y * 2.0 + time * .36);
         vec3 color = mix(cool, warm, mixAmount);
-        color = mix(color, vec3(1.0, .95, 1.0), clamp(.10 + outline * .47 + innerGlow * .14, 0.0, .72));
-        float alpha = clamp(haze * .19 + cloud * .63 + rays * .50 + innerGlow * .20 + outline * .18, 0.0, .91);
+        color = mix(color, vec3(1.0, .95, 1.0), clamp(.10 + outline * (.47 - .35 * reveal) + letters * reveal * .30, 0.0, .72));
+        float alpha = clamp(haze * .19 + silhouette * .68 + (rays * .50 + innerGlow * .20 + outline * .18) * (1.0 - reveal), 0.0, .91);
         vec2 screenUV = gl_FragCoord.xy / viewport;
         vec2 left = (screenUV - vec2(.065, .57 + .036 * sin(time * .34))) * vec2(7.2, 1.95);
         vec2 right = (screenUV - vec2(.94, .37 + .044 * cos(time * .29))) * vec2(6.3, 2.3);
@@ -759,10 +783,17 @@ if (section === 'assembly') setInterval(() => {
     const position = gl.getAttribLocation(program, 'position');
     gl.enableVertexAttribArray(position);
     gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
-    const uniforms = Object.fromEntries(['center', 'pull', 'viewport', 'size', 'time', 'hue', 'wide']
+    const uniforms = Object.fromEntries(['center', 'pull', 'viewport', 'size', 'time', 'hue', 'wide', 'reveal', 'signatureMask']
       .map(name => [name, gl.getUniformLocation(program, name)]));
+    const texture = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, signature);
+    gl.uniform1i(uniforms.signatureMask, 0);
     element.dataset.renderer = 'webgl';
-    return (x, y, radius, seconds, degrees, pointerX, pointerY, wide) => {
+    return (x, y, radius, seconds, degrees, pointerX, pointerY, wide, reveal) => {
       gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
       gl.uniform2f(uniforms.center, x * scale, gl.drawingBufferHeight - y * scale);
       gl.uniform2f(uniforms.pull, pointerX, -pointerY);
@@ -771,6 +802,7 @@ if (section === 'assembly') setInterval(() => {
       gl.uniform1f(uniforms.time, seconds);
       gl.uniform1f(uniforms.hue, degrees / 360);
       gl.uniform1f(uniforms.wide, wide);
+      gl.uniform1f(uniforms.reveal, reveal);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
   }
@@ -825,16 +857,9 @@ if (section === 'assembly') setInterval(() => {
     const x = width * .52 + (still ? 0 : Math.sin(time * .36) * radius * .24 + drift.x * radius * .33);
     const y = height * (.40 + .07 * wide) + (still ? 0 : Math.cos(time * .43) * radius * .19 + drift.y * radius * .28);
     const cycle = time % 42;
-    const reveal = still || cycle < 32 || cycle > 38 ? 0 : Math.pow(Math.sin((cycle - 32) / 6 * Math.PI), 1.35);
-    canvas.style.opacity = String(1 - reveal * .82);
-    signature.style.opacity = String(reveal * .87);
-    if (reveal) {
-      signature.style.left = x + 'px';
-      signature.style.top = y + 'px';
-      signature.style.setProperty('--ink-signature-color', 'hsl(' + hue + ',94%,73%)');
-    }
+    const reveal = still || cycle < 32 || cycle > 38 ? 0 : Math.min(1, Math.sin((cycle - 32) / 6 * Math.PI) * 1.22);
     if (shader) {
-      shader(x, y, radius, time, hue, still ? 0 : drift.x, still ? 0 : drift.y, wide);
+      shader(x, y, radius, time, hue, still ? 0 : drift.x, still ? 0 : drift.y, wide, reveal);
       return;
     }
     if (!ink) return;
@@ -859,6 +884,7 @@ if (section === 'assembly') setInterval(() => {
     ink.fillRect(0, 0, width, height);
 
     // Long, diffuse rays and a smaller luminous contour drift out of phase.
+    ink.globalAlpha = 1 - reveal;
     ink.filter = 'blur(' + Math.max(3, radius * .025 * scale) + 'px)';
     layer(time, x, y, radius * .76, -.48 + Math.sin(time * .38) * .23, .79, 1.4, .88,
       [[0, tint(-14, 52, .63)], [.52, tint(1, 48, .49)], [.78, tint(13, 42, .20)], [1, tint(24, 34, 0)]]);
@@ -867,6 +893,15 @@ if (section === 'assembly') setInterval(() => {
       radius * .39, .47 - Math.sin(time * .56) * .36, .84, .3, .20,
       [[0, tint(11, 67, .19)], [.66, tint(4, 66, .16)], [1, tint(-9, 65, .03)]],
       [[0, tint(-10, 82, .08)], [.34, tint(10, 84, .62)], [.66, tint(-5, 80, .37)], [1, tint(6, 80, .07)]]);
+    if (reveal) {
+      mask.globalCompositeOperation = 'source-in';
+      mask.fillStyle = tint(0, 64, 1);
+      mask.fillRect(0, 0, signature.width, signature.height);
+      ink.globalAlpha = reveal * .86;
+      ink.filter = 'blur(' + Math.max(3, radius * .022 * scale) + 'px)';
+      ink.drawImage(signature, x - radius * .86, y - radius * .43, radius * 1.72, radius * .86);
+    }
+    ink.globalAlpha = 1;
     ink.filter = 'none';
   }
 
