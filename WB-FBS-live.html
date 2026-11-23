@@ -541,9 +541,13 @@ if (section === 'assembly') setInterval(() => {
 </script>
 <script>
 (() => {
-  const canvas = document.getElementById('ambient-ink');
-  const ink = canvas.getContext('2d');
-  if (!ink) return;
+  const fallback = document.getElementById('ambient-ink');
+  const ink = fallback.getContext('2d');
+  const surface = fallback.cloneNode();
+  let shader = createInkShader(surface);
+  let canvas = shader ? surface : fallback;
+  if (shader) fallback.replaceWith(surface);
+  if (!shader && !ink) return;
 
   const motion = matchMedia('(prefers-reduced-motion: reduce)');
   const forcedColors = matchMedia('(forced-colors: active)');
@@ -557,6 +561,110 @@ if (section === 'assembly') setInterval(() => {
   let height = 0;
   let scale = 1;
   let last = 0;
+
+  function createInkShader(element) {
+    const gl = element.getContext('webgl', { alpha: true, premultipliedAlpha: false, antialias: false });
+    if (!gl) return null;
+    const vertexSource = 'attribute vec2 position; void main() { gl_Position = vec4(position, 0.0, 1.0); }';
+    const fragmentSource = `
+      #ifdef GL_FRAGMENT_PRECISION_HIGH
+      precision highp float;
+      #else
+      precision mediump float;
+      #endif
+      uniform vec2 center;
+      uniform vec2 pull;
+      uniform float size;
+      uniform float time;
+      uniform float hue;
+
+      vec3 colorWheel(float h) {
+        vec3 stops = fract(h + vec3(0.0, .6667, .3333));
+        return clamp(abs(stops * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+      }
+
+      vec2 distort(vec2 point, float phase) {
+        return point + vec2(sin(point.y * 4.8 + phase) + .46 * sin(point.x * 8.0 - phase),
+          cos(point.x * 3.7 - phase) + .46 * sin(point.y * 7.0 + phase)) * .073;
+      }
+
+      void main() {
+        vec2 point = (gl_FragCoord.xy - center) / size;
+        vec2 p = distort(point, time * .51);
+        float angle = atan(p.y, p.x + .0001);
+        float radius = length(p);
+        float lobes = .58 + .098 * sin(angle * 3.0 + time * .58)
+          + .065 * cos(angle * 5.0 - time * .39);
+        float cloud = 1.0 - smoothstep(-.11, .14, radius - lobes);
+        float phase = angle + .045 * sin(radius * 6.0 - time * .55);
+        float alignment = .5 + .5 * cos(phase * 9.0 + time * .34);
+        float pulses = pow(.5 + .5 * sin(angle * 2.0 - time * .49), 3.0);
+        float rayReach = .10 + .37 * pulses + .10 * dot(normalize(p + vec2(.0001)), pull);
+        float rayDistance = (radius - lobes) / max(rayReach, .09);
+        float taper = exp(-rayDistance * rayDistance * 1.85);
+        float rays = pow(alignment, 12.0) * (.15 + .85 * pulses) * taper
+          * smoothstep(-.12, .03, radius - lobes);
+        float haze = exp(-3.9 * dot(point, point));
+
+        vec2 loop = distort(point + vec2(.13 + .09 * sin(time * .42),
+          -.08 + .10 * cos(time * .46)), -time * .36 + 1.7);
+        float innerAngle = atan(loop.y, loop.x + .0001);
+        float innerRadius = .265 + .073 * sin(innerAngle * 3.0 - time * .61)
+          + .033 * cos(innerAngle * 5.0 + time * .46);
+        float innerDistance = length(loop) - innerRadius;
+        float rimLight = .26 + .74 * pow(.5 + .5 * cos(innerAngle - time * .52 + .8), 2.0);
+        float outline = exp(-abs(innerDistance) * 44.0) * rimLight;
+        float innerGlow = exp(-abs(innerDistance) * 13.0) * rimLight;
+
+        vec3 cool = colorWheel(hue + .022);
+        vec3 warm = colorWheel(hue - .033);
+        float mixAmount = .5 + .5 * sin(p.x * 3.2 + p.y * 2.0 + time * .36);
+        vec3 color = mix(cool, warm, mixAmount);
+        color = mix(color, vec3(1.0, .95, 1.0), clamp(.10 + outline * .47 + innerGlow * .14, 0.0, .72));
+        float alpha = clamp(haze * .19 + cloud * .63 + rays * .50 + innerGlow * .20 + outline * .18, 0.0, .91);
+        gl_FragColor = vec4(color, alpha);
+      }
+    `;
+
+    function compile(type, source) {
+      const part = gl.createShader(type);
+      gl.shaderSource(part, source);
+      gl.compileShader(part);
+      if (gl.getShaderParameter(part, gl.COMPILE_STATUS)) return part;
+      gl.deleteShader(part);
+      return null;
+    }
+    const vertex = compile(gl.VERTEX_SHADER, vertexSource);
+    const fragment = compile(gl.FRAGMENT_SHADER, fragmentSource);
+    if (!vertex || !fragment) return null;
+    const program = gl.createProgram();
+    gl.attachShader(program, vertex);
+    gl.attachShader(program, fragment);
+    gl.linkProgram(program);
+    gl.deleteShader(vertex);
+    gl.deleteShader(fragment);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
+    gl.useProgram(program);
+
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const position = gl.getAttribLocation(program, 'position');
+    gl.enableVertexAttribArray(position);
+    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+    const uniforms = Object.fromEntries(['center', 'pull', 'size', 'time', 'hue']
+      .map(name => [name, gl.getUniformLocation(program, name)]));
+    element.dataset.renderer = 'webgl';
+    return (x, y, radius, seconds, degrees, pointerX, pointerY) => {
+      gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+      gl.uniform2f(uniforms.center, x * scale, gl.drawingBufferHeight - y * scale);
+      gl.uniform2f(uniforms.pull, pointerX, -pointerY);
+      gl.uniform1f(uniforms.size, radius * scale);
+      gl.uniform1f(uniforms.time, seconds);
+      gl.uniform1f(uniforms.hue, degrees / 360);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    };
+  }
 
   function contour(time, phase, flare) {
     ink.beginPath();
@@ -606,6 +714,11 @@ if (section === 'assembly') setInterval(() => {
     const radius = Math.min(width * .52, height * .56, 530);
     const x = width * .52 + (still ? 0 : Math.sin(time * .36) * radius * .24 + drift.x * radius * .33);
     const y = height * .40 + (still ? 0 : Math.cos(time * .43) * radius * .19 + drift.y * radius * .28);
+    if (shader) {
+      shader(x, y, radius, time, hue, still ? 0 : drift.x, still ? 0 : drift.y);
+      return;
+    }
+    if (!ink) return;
     const tint = (shift, light, alpha) => 'hsla(' + (hue + shift) + ', 91%, ' + light + '%, ' + alpha + ')';
 
     ink.setTransform(scale, 0, 0, scale, 0, 0);
@@ -671,6 +784,13 @@ if (section === 'assembly') setInterval(() => {
   window.addEventListener('resize', resize, { passive: true });
   motion.addEventListener('change', schedule);
   forcedColors.addEventListener('change', resize);
+  surface.addEventListener('webglcontextlost', () => {
+    if (canvas !== surface) return;
+    shader = null;
+    surface.replaceWith(fallback);
+    canvas = fallback;
+    resize();
+  });
   resize();
 })();
 </script>
