@@ -25,6 +25,11 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
 <style>
   body { isolation: isolate; }
   #ambient-ink { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: -1; }
+  @media (min-width: 1440px) {
+    .header, main { width: min(1600px, calc(100% - clamp(96px, 12vw, 340px))); }
+    .metrics, .cards { gap: 18px; }
+    .table-wrap th, .table-wrap td { padding-inline: 15px; }
+  }
   @media (forced-colors: active) { #ambient-ink { display: none; } }
 </style>
 </head>
@@ -574,9 +579,11 @@ if (section === 'assembly') setInterval(() => {
       #endif
       uniform vec2 center;
       uniform vec2 pull;
+      uniform vec2 viewport;
       uniform float size;
       uniform float time;
       uniform float hue;
+      uniform float wide;
 
       vec3 colorWheel(float h) {
         vec3 stops = fract(h + vec3(0.0, .6667, .3333));
@@ -622,6 +629,15 @@ if (section === 'assembly') setInterval(() => {
         vec3 color = mix(cool, warm, mixAmount);
         color = mix(color, vec3(1.0, .95, 1.0), clamp(.10 + outline * .47 + innerGlow * .14, 0.0, .72));
         float alpha = clamp(haze * .19 + cloud * .63 + rays * .50 + innerGlow * .20 + outline * .18, 0.0, .91);
+        vec2 screenUV = gl_FragCoord.xy / viewport;
+        vec2 left = (screenUV - vec2(.065, .57 + .036 * sin(time * .34))) * vec2(7.2, 1.95);
+        vec2 right = (screenUV - vec2(.94, .37 + .044 * cos(time * .29))) * vec2(6.3, 2.3);
+        float leftGlow = exp(-dot(left, left)) * .19 * wide;
+        float rightGlow = exp(-dot(right, right)) * .23 * wide;
+        float sideGlow = (leftGlow + rightGlow) * (1.0 - alpha);
+        vec3 sideColor = mix(colorWheel(hue + .075), colorWheel(hue - .10), rightGlow / max(leftGlow + rightGlow, .0001));
+        color = (color * alpha + sideColor * sideGlow) / max(alpha + sideGlow, .0001);
+        alpha += sideGlow;
         gl_FragColor = vec4(color, alpha);
       }
     `;
@@ -652,16 +668,18 @@ if (section === 'assembly') setInterval(() => {
     const position = gl.getAttribLocation(program, 'position');
     gl.enableVertexAttribArray(position);
     gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
-    const uniforms = Object.fromEntries(['center', 'pull', 'size', 'time', 'hue']
+    const uniforms = Object.fromEntries(['center', 'pull', 'viewport', 'size', 'time', 'hue', 'wide']
       .map(name => [name, gl.getUniformLocation(program, name)]));
     element.dataset.renderer = 'webgl';
-    return (x, y, radius, seconds, degrees, pointerX, pointerY) => {
+    return (x, y, radius, seconds, degrees, pointerX, pointerY, wide) => {
       gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
       gl.uniform2f(uniforms.center, x * scale, gl.drawingBufferHeight - y * scale);
       gl.uniform2f(uniforms.pull, pointerX, -pointerY);
+      gl.uniform2f(uniforms.viewport, gl.drawingBufferWidth, gl.drawingBufferHeight);
       gl.uniform1f(uniforms.size, radius * scale);
       gl.uniform1f(uniforms.time, seconds);
       gl.uniform1f(uniforms.hue, degrees / 360);
+      gl.uniform1f(uniforms.wide, wide);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
   }
@@ -711,11 +729,12 @@ if (section === 'assembly') setInterval(() => {
     hue = still ? targetHue : (hue + ((targetHue - hue + 540) % 360 - 180) * .08 + 360) % 360;
     drift.x += (pointer.x - drift.x) * .065;
     drift.y += (pointer.y - drift.y) * .065;
-    const radius = Math.min(width * .52, height * .56, 530);
+    const wide = Math.min(1, Math.max(0, (width - 1280) / 570));
+    const radius = Math.min(width * .52, height * (.56 + .05 * wide), 530 + 85 * wide);
     const x = width * .52 + (still ? 0 : Math.sin(time * .36) * radius * .24 + drift.x * radius * .33);
-    const y = height * .40 + (still ? 0 : Math.cos(time * .43) * radius * .19 + drift.y * radius * .28);
+    const y = height * (.40 + .07 * wide) + (still ? 0 : Math.cos(time * .43) * radius * .19 + drift.y * radius * .28);
     if (shader) {
-      shader(x, y, radius, time, hue, still ? 0 : drift.x, still ? 0 : drift.y);
+      shader(x, y, radius, time, hue, still ? 0 : drift.x, still ? 0 : drift.y, wide);
       return;
     }
     if (!ink) return;
@@ -723,6 +742,15 @@ if (section === 'assembly') setInterval(() => {
 
     ink.setTransform(scale, 0, 0, scale, 0, 0);
     ink.clearRect(0, 0, width, height);
+    if (wide > 0) {
+      for (const [sideX, sideY, shift, strength] of [[.065, .43, 27, .19], [.94, .63, -36, .23]]) {
+        const glow = ink.createRadialGradient(width * sideX, height * sideY, 0, width * sideX, height * sideY, Math.min(width * .25, height * .6));
+        glow.addColorStop(0, tint(shift, 40, strength * wide));
+        glow.addColorStop(1, tint(shift, 34, 0));
+        ink.fillStyle = glow;
+        ink.fillRect(0, 0, width, height);
+      }
+    }
     const halo = ink.createRadialGradient(x, y, 0, x, y, radius * 1.65);
     halo.addColorStop(0, tint(-5, 33, .38));
     halo.addColorStop(.56, tint(9, 23, .19));
