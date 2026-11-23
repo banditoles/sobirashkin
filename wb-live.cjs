@@ -285,8 +285,12 @@ const server = http.createServer(async (request, response) => {
   response.setHeader('Cache-Control', 'no-store');
   response.setHeader('Referrer-Policy', 'no-referrer');
   response.setHeader('X-Frame-Options', 'DENY');
-  response.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'");
+  response.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'self'");
   if (request.headers.host !== host + ':' + port) return json(response, 403, { error: 'Открой панель по адресу ' + origin });
+  if (request.method === 'GET' && request.url === '/liquidglass-v1.0.3.mjs') {
+    response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
+    return response.end(fs.readFileSync(path.join(__dirname, 'liquidglass-v1.0.3.mjs')));
+  }
   if (request.method === 'GET' && ['/', '/assembly', '/shops', '/vds', '/supplies'].includes(request.url)) {
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return response.end(page);
@@ -362,3 +366,4 @@ server.listen(port, host, () => {
   for (const shop of shops) void refresh(shop);
   void refreshRate();
 });
+

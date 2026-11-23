@@ -24,7 +24,9 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
 </style>
 <style>
   body { isolation: isolate; }
-  #ambient-ink { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: -1; }
+  #glass-stage { position:fixed; inset:0; z-index:-1; pointer-events:none; isolation:isolate; }
+  #ambient-ink { position:absolute; inset:0; width:100%; height:100%; }
+  .glass-proxy { position:absolute; left:-999px; width:1px; height:1px; isolation:isolate; }
   @media (min-width: 1440px) {
     .header, main { width: min(1600px, calc(100% - clamp(96px, 12vw, 340px))); }
     .metrics, .cards { gap: 18px; }
@@ -56,6 +58,11 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     mask-image:linear-gradient(90deg,transparent,black 12px,black calc(100% - 12px),transparent),
       linear-gradient(180deg,transparent,black 12px,black calc(100% - 12px),transparent);
     mask-composite:intersect;
+  }
+  .glass.shader-backed::after { display:none; }
+  .glass.shader-backed {
+    background:linear-gradient(175deg,#e0c0ff0b,transparent 52%,#21133318);
+    box-shadow:inset 0 1px 1px #efe1ff32, inset 0 -1px 1px #dac2f21c;
   }
   .shop-row { background-color:#68458b21; }
   .shop-row { margin-top:10px; padding:12px; border:1px solid transparent; border-radius:13px; }
@@ -107,7 +114,7 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     <feDisplacementMap in="SourceGraphic" in2="ripple" scale="16" xChannelSelector="R" yChannelSelector="G" />
   </filter>
 </svg>
-<canvas id="ambient-ink" aria-hidden="true"></canvas>
+<div id="glass-stage" aria-hidden="true"><canvas id="ambient-ink" data-dynamic></canvas></div>
 <header><div class="header"><div class="logo"><b>WB</b>Собирашкин</div><nav aria-label="Разделы"><a href="/">Сводка</a><a href="/assembly">Сборка</a><a href="/supplies">Поставки</a><a href="/shops">Магазины</a><a href="/vds">VDS</a></nav></div></header>
 <main>
   <div class="heading">
@@ -665,7 +672,7 @@ if (section === 'assembly') setInterval(() => {
   let last = 0;
 
   function createInkShader(element) {
-    const gl = element.getContext('webgl', { alpha: true, premultipliedAlpha: false, antialias: false });
+    const gl = element.getContext('webgl', { alpha: true, premultipliedAlpha: false, antialias: false, preserveDrawingBuffer: true });
     if (!gl) return null;
     const vertexSource = 'attribute vec2 position; void main() { gl_Position = vec4(position, 0.0, 1.0); }';
     const fragmentSource = `
@@ -753,7 +760,9 @@ if (section === 'assembly') setInterval(() => {
         vec3 sideColor = mix(colorWheel(hue + .075), colorWheel(hue - .10), rightGlow / max(leftGlow + rightGlow, .0001));
         color = (color * alpha + sideColor * sideGlow) / max(alpha + sideGlow, .0001);
         alpha += sideGlow;
-        gl_FragColor = vec4(color, alpha);
+        vec3 base = mix(vec3(.045,.032,.069), vec3(.132,.063,.226),
+          exp(-3.0 * distance(screenUV,vec2(.18,1.02))));
+        gl_FragColor = vec4(mix(base,color,alpha), 1.0);
       }
     `;
 
@@ -867,6 +876,8 @@ if (section === 'assembly') setInterval(() => {
 
     ink.setTransform(scale, 0, 0, scale, 0, 0);
     ink.clearRect(0, 0, width, height);
+    ink.fillStyle = '#110c1c';
+    ink.fillRect(0, 0, width, height);
     if (wide > 0) {
       for (const [sideX, sideY, shift, strength] of [[.065, .43, 27, .19], [.94, .63, -36, .23]]) {
         const glow = ink.createRadialGradient(width * sideX, height * sideY, 0, width * sideX, height * sideY, Math.min(width * .25, height * .6));
@@ -956,6 +967,55 @@ if (section === 'assembly') setInterval(() => {
   });
   resize();
 })();
+</script>
+<script type="module">
+if (!matchMedia('(forced-colors: active)').matches) {
+  import('/liquidglass-v1.0.3.mjs').then(async ({ LiquidGlass }) => {
+    const stage = document.getElementById('glass-stage');
+    const slots = Array.from({length:8}, () => {
+      const slot = document.createElement('div');
+      slot.className = 'glass-proxy';
+      stage.append(slot);
+      return slot;
+    });
+    const preset = {blurAmount:0, cornerRadius:21, edgeHighlight:.05, shadowOpacity:.05};
+    let visible = [];
+    let pendingLayout = false;
+    let effect;
+    const layout = () => {
+      pendingLayout = false;
+      for (const panel of visible) panel.classList.remove('shader-backed');
+      visible = [...document.querySelectorAll('main .glass')].filter(panel => {
+        const rect = panel.getBoundingClientRect();
+        return rect.width > 10 && rect.height > 10 && rect.bottom > 0 && rect.top < innerHeight;
+      }).slice(0, slots.length);
+      for (const [index, slot] of slots.entries()) {
+        const panel = visible[index];
+        if (!panel) {
+          slot.style.cssText = 'left:-999px;width:1px;height:1px';
+          continue;
+        }
+        const {left, top, width, height} = panel.getBoundingClientRect();
+        slot.style.cssText = 'left:' + left + 'px;top:' + top + 'px;width:' + width + 'px;height:' + height + 'px';
+        if (effect) panel.classList.add('shader-backed');
+      }
+      effect?.markChanged();
+    };
+    const schedule = () => {
+      if (pendingLayout) return;
+      pendingLayout = true;
+      requestAnimationFrame(layout);
+    };
+    layout();
+    effect = await LiquidGlass.init({root:stage, glassElements:slots, defaults:preset});
+    layout();
+    const main = document.querySelector('main');
+    new ResizeObserver(schedule).observe(main);
+    new MutationObserver(schedule).observe(main, {childList:true, subtree:true, attributes:true, attributeFilter:['hidden']});
+    window.addEventListener('scroll', schedule, {passive:true});
+    window.addEventListener('resize', schedule, {passive:true});
+  }).catch(error => console.warn('Regular Glass fallback:', error));
+}
 </script>
 </body>
 </html>
