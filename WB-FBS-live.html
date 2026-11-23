@@ -35,8 +35,8 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
 <style>
   :root {
     --glass-fill: linear-gradient(155deg,#f0dbff20 0%,#a76de820 28%,#21133024 62%,#10091970 100%);
-    --glass-edge: #ead4ff49;
-    --glass-light: inset 0 1px 1px #fff8, inset 1px 0 1px #efd8ff31, inset 0 -1px 2px #180b26;
+    --glass-edge: transparent;
+    --glass-light: inset 0 -1px 2px #180b2650;
     --glass-shadow: 0 10px 28px #08041158;
   }
   header,.glass,.order-tooltip {
@@ -51,27 +51,27 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
   .panel,.shop-row { background-color:#140b2055; }
   .metric,.card { background-color:#1d102c45; }
   .diagnostic-hero { background-color:#3a195a58; }
-  .shop-row { margin-top:10px; padding:12px; border:1px solid #f2dbff25; border-radius:13px; }
+  .shop-row { margin-top:10px; padding:12px; border:1px solid transparent; border-radius:13px; }
   nav a,.logo b,button,.button,.filter,input:not([type=checkbox]),.pill,.thumb {
     background: linear-gradient(165deg,#f0daff35,#b36bec1c 40%,#351a4c55 72%,#e5b9ff16), #20102e70;
-    border:1px solid #ecd1ff4f;
-    box-shadow: inset 0 1px 1px #fff5, inset 0 -1px 1px #28163d, 0 3px 9px #0a041d45;
+    border:1px solid transparent;
+    box-shadow: inset 0 -1px 1px #28163d70, 0 3px 9px #0a041d45;
     backdrop-filter: blur(8px) saturate(142%);
   }
   nav a,.logo b,button,.button,.filter,.pill { border-radius:999px; }
   nav a { color:#f2e8fc; }
   nav a[aria-current],.primary,.logo b {
     background: linear-gradient(154deg,#ede0ff66,#bd83ff55 34%,#6824ae9e 74%,#db9aff2f), #482975a0;
-    border-color:#eac8ff9c;
+    border-color:transparent;
   }
+  .pill.ok { border-color:transparent; }
   button:not(.sort):not(:disabled):hover,.button:hover,nav a:hover {
     background-color:#743cacb5;
-    border-color:#f2d9ffbc;
   }
   input:not([type=checkbox]) { border-radius:12px; }
   input[type=checkbox] { accent-color:#b87bf4; }
   .sort,.sort:hover { background:transparent; box-shadow:none; border:0; backdrop-filter:none; }
-  .table-wrap { border:1px solid #edd2ff38; border-radius:15px; background:#130a1b4d; }
+  .table-wrap { border:1px solid transparent; border-radius:15px; background:#130a1b4d; }
   thead { background:linear-gradient(180deg,#f4d8ff23,#8f58c313); }
   th,td { border-color:#e5c6fa26; }
   tbody tr:hover,tbody tr[data-selected] { background:#c184fc2c; }
