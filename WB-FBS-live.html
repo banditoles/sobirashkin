@@ -558,13 +558,15 @@ if (section === 'assembly') setInterval(() => {
   let scale = 1;
   let last = 0;
 
-  function contour(time, phase) {
+  function contour(time, phase, flare) {
     ink.beginPath();
-    for (let step = 0; step <= 112; step++) {
-      const angle = step / 112 * Math.PI * 2;
-      const wave = 1 + .18 * Math.sin(3 * angle + time * 1.05 + phase)
+    for (let step = 0; step <= 192; step++) {
+      const angle = step / 192 * Math.PI * 2;
+      const bend = angle + .17 * Math.sin(2 * angle - time * .46 + phase);
+      const rays = Math.pow((1 + Math.cos(7 * bend + phase)) / 2, 9);
+      const wave = .91 + .17 * Math.sin(3 * angle + time * 1.05 + phase)
         + .13 * Math.cos(5 * angle - time * .72 + phase)
-        + .07 * Math.sin(9 * angle + time * .56 - phase);
+        + flare * rays * (.62 + .38 * Math.sin(4 * angle + phase + time * .65));
       const x = Math.cos(angle) * wave;
       const y = Math.sin(angle) * wave;
       if (step === 0) ink.moveTo(x, y);
@@ -573,16 +575,24 @@ if (section === 'assembly') setInterval(() => {
     ink.closePath();
   }
 
-  function layer(time, x, y, radius, angle, flatten, phase, colors) {
+  function layer(time, x, y, radius, angle, flatten, phase, flare, colors, rim) {
     ink.save();
     ink.translate(x, y);
     ink.rotate(angle);
     ink.scale(radius, radius * flatten);
-    const gradient = ink.createRadialGradient(-.12, -.22, .06, 0, 0, 1.24);
+    const gradient = ink.createRadialGradient(-.12, -.22, .06, 0, 0, flare > .3 ? 1.9 : 1.28);
     for (const [stop, color] of colors) gradient.addColorStop(stop, color);
     ink.fillStyle = gradient;
-    contour(time, phase);
+    contour(time, phase, flare);
     ink.fill();
+    if (rim) {
+      const edge = ink.createLinearGradient(-.8, -.95, .93, .82);
+      for (const [stop, color] of rim) edge.addColorStop(stop, color);
+      ink.strokeStyle = edge;
+      ink.lineWidth = .036;
+      ink.lineJoin = 'round';
+      ink.stroke();
+    }
     ink.restore();
   }
 
@@ -607,13 +617,15 @@ if (section === 'assembly') setInterval(() => {
     ink.fillStyle = halo;
     ink.fillRect(0, 0, width, height);
 
-    // Two soft contours create a drifting plume and a brighter uneven core.
-    ink.filter = 'blur(' + Math.max(6, radius * .075 * scale) + 'px)';
-    layer(time, x, y, radius, -.48 + Math.sin(time * .38) * .23, .53, 1.4,
-      [[0, tint(-14, 48, .34)], [.69, tint(1, 43, .24)], [1, tint(24, 34, 0)]]);
-    ink.filter = 'blur(' + Math.max(4, radius * .043 * scale) + 'px)';
-    layer(time, x + radius * .045, y - radius * .03, radius * .73, .43 + Math.cos(time * .44) * .3, .73, 0,
-      [[0, tint(-8, 61, .61)], [.43, tint(2, 48, .47)], [.74, tint(13, 37, .22)], [1, tint(20, 29, 0)]]);
+    // Long, diffuse rays and a smaller luminous contour drift out of phase.
+    ink.filter = 'blur(' + Math.max(3, radius * .025 * scale) + 'px)';
+    layer(time, x, y, radius * .76, -.48 + Math.sin(time * .38) * .23, .79, 1.4, .88,
+      [[0, tint(-14, 52, .63)], [.52, tint(1, 48, .49)], [.78, tint(13, 42, .20)], [1, tint(24, 34, 0)]]);
+    ink.filter = 'blur(' + Math.max(2, radius * .010 * scale) + 'px)';
+    layer(-time * .62, x - radius * (.13 + Math.sin(time * .56) * .10), y - radius * (.08 + Math.cos(time * .48) * .09),
+      radius * .39, .47 - Math.sin(time * .56) * .36, .84, .3, .20,
+      [[0, tint(11, 67, .19)], [.66, tint(4, 66, .16)], [1, tint(-9, 65, .03)]],
+      [[0, tint(-10, 82, .08)], [.34, tint(10, 84, .62)], [.66, tint(-5, 80, .37)], [1, tint(6, 80, .07)]]);
     ink.filter = 'none';
   }
 
@@ -630,7 +642,7 @@ if (section === 'assembly') setInterval(() => {
   function schedule() {
     cancelAnimationFrame(frame);
     frame = 0;
-    if (document.hidden || forcedColors.matches) return;
+    if (document.hidden || forcedColors.matches || !width || !height) return;
     draw(performance.now());
     if (!motion.matches) frame = requestAnimationFrame(tick);
   }
