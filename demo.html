@@ -189,7 +189,12 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
       box-shadow:none;
     }
     [data-glass-lit]::before { display:none; }
-    .glass,.glass.shader-backed { background:linear-gradient(160deg,#d2a4f026,#6b458129); }
+    .glass { background:linear-gradient(160deg,#d2a4f026,#6b458129); }
+    .glass.shader-backed { border-radius:12px; border-color:transparent; background:transparent; }
+    #ambient-ink {
+      -webkit-mask-image:linear-gradient(#000 76%,transparent);
+      mask-image:linear-gradient(#000 76%,transparent);
+    }
     #order-tooltip,#order-tooltip.shader-backed { box-shadow:none; }
     main { animation:none; }
     .header,main { width:calc(100% - 20px); }
@@ -3982,7 +3987,8 @@ export {
         const inViewport = panel => {
           const rect = panel.getBoundingClientRect();
           return rect.width > 10 && rect.height > 10
-            && rect.bottom > stageRect.top && rect.top < stageRect.bottom - 10;
+            && rect.bottom > stageRect.top && rect.top < stageRect.bottom - 10
+            && (!mobile.matches || rect.bottom <= stageRect.bottom - 12);
         };
         for (const [slots, selector] of [[panels,glassSelector()],[buttons,buttonSelector]]) {
           const targets = [...document.querySelectorAll(selector)].filter(inViewport);
@@ -3998,7 +4004,7 @@ export {
             const height = Math.min(rect.height, stageRect.height - top);
             const config = JSON.stringify(slots === buttons ? {button:true,cornerRadius:8}
               : panel.id === 'order-tooltip' ? {brightness:-.3,blurAmount:.25,cornerRadius:12}
-              : mobile.matches ? {button:false,cornerRadius:12,shadowOpacity:0} : {button:false});
+              : mobile.matches ? {button:false,cornerRadius:12,zRadius:14,shadowOpacity:0} : {button:false});
             if (slot.dataset.config !== config) slot.dataset.config = config;
             slot.style.cssText = 'left:' + left + 'px;top:' + top + 'px;width:' + rect.width + 'px;height:' + height + 'px';
             visible.push(panel);
