@@ -813,6 +813,8 @@ if (section === 'assembly') setInterval(() => {
   if (!shader && !ink) return;
 
   const motion = matchMedia('(prefers-reduced-motion: reduce)');
+  const mobileInk = matchMedia('(max-width:760px)');
+  let inkVisible = true;
   const forcedColors = matchMedia('(forced-colors: active)');
   const palette = [188, 272, 327, 151, 33, 218];
   const pointer = { x: 0, y: 0 };
@@ -987,11 +989,12 @@ if (section === 'assembly') setInterval(() => {
 
   function draw(now) {
     const still = motion.matches;
-    const time = still ? 0 : now / 1000;
+    const autonomous = mobileInk.matches;
+    const time = still ? 0 : now / (autonomous ? 1450 : 1000);
     const targetHue = palette[index];
     hue = still ? targetHue : (hue + ((targetHue - hue + 540) % 360 - 180) * .08 + 360) % 360;
-    drift.x += (pointer.x - drift.x) * .065;
-    drift.y += (pointer.y - drift.y) * .065;
+    drift.x = autonomous ? 0 : drift.x + (pointer.x - drift.x) * .065;
+    drift.y = autonomous ? 0 : drift.y + (pointer.y - drift.y) * .065;
     const wide = Math.min(1, Math.max(0, (width - 1280) / 570));
     const radius = Math.min(width * .52, height * (.56 + .05 * wide), 530 + 85 * wide);
     const x = width * .52 + (still ? 0 : Math.sin(time * .36) * radius * .24 + drift.x * radius * .33);
@@ -1037,8 +1040,9 @@ if (section === 'assembly') setInterval(() => {
 
   function tick(now) {
     frame = 0;
-    if (document.hidden || motion.matches || forcedColors.matches) return;
-    if (now - last >= 28) {
+    if (document.hidden || motion.matches || forcedColors.matches || (mobileInk.matches && !inkVisible)) return;
+    const frameInterval = mobileInk.matches ? (shader ? 50 : 83) : 28;
+    if (now - last >= frameInterval - 1) {
       last = now;
       draw(now);
     }
@@ -1048,7 +1052,7 @@ if (section === 'assembly') setInterval(() => {
   function schedule() {
     cancelAnimationFrame(frame);
     frame = 0;
-    if (document.hidden || forcedColors.matches || !width || !height) return;
+    if (document.hidden || forcedColors.matches || !width || !height || (mobileInk.matches && !inkVisible)) return;
     draw(performance.now());
     if (!motion.matches) frame = requestAnimationFrame(tick);
   }
@@ -1056,14 +1060,16 @@ if (section === 'assembly') setInterval(() => {
   function resize() {
     width = canvas.clientWidth;
     height = canvas.clientHeight;
-    scale = Math.min(1, (window.devicePixelRatio || 1) * .8);
+    scale = mobileInk.matches
+      ? Math.min(.65, Math.sqrt(140000 / Math.max(1, width * height)))
+      : Math.min(1, (window.devicePixelRatio || 1) * .8);
     canvas.width = Math.max(1, Math.ceil(width * scale));
     canvas.height = Math.max(1, Math.ceil(height * scale));
     schedule();
   }
 
   window.addEventListener('pointermove', event => {
-    if (motion.matches || !width || !height) return;
+    if (mobileInk.matches || motion.matches || !width || !height) return;
     pointer.x = 2 * event.clientX / width - 1;
     pointer.y = 2 * event.clientY / height - 1;
   }, { passive: true });
@@ -1075,6 +1081,14 @@ if (section === 'assembly') setInterval(() => {
   });
   document.addEventListener('visibilitychange', schedule);
   window.addEventListener('resize', resize, { passive: true });
+  mobileInk.addEventListener('change', resize);
+  if ('IntersectionObserver' in window) {
+    const inkObserver = new IntersectionObserver(([entry]) => {
+      inkVisible = entry.isIntersecting;
+      if (mobileInk.matches) schedule();
+    });
+    inkObserver.observe(document.getElementById('glass-stage'));
+  }
   motion.addEventListener('change', schedule);
   forcedColors.addEventListener('change', resize);
   surface.addEventListener('webglcontextlost', () => {
