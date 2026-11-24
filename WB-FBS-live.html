@@ -45,7 +45,7 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     border-color: var(--glass-edge);
     box-shadow: none;
     backdrop-filter: blur(22px) saturate(155%);
-    backdrop-filter: url(#glass-refraction) blur(18px) saturate(155%);
+    
   }
   header { background-color:#6c4c8b12; }
   .glass {
@@ -55,7 +55,7 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     content:''; position:absolute; inset:0; z-index:-2; border-radius:inherit; pointer-events:none;
     background:var(--glass-fill),#60438225;
     backdrop-filter:blur(22px) saturate(155%);
-    backdrop-filter:url(#glass-refraction) blur(18px) saturate(155%);
+    
     mask-image:linear-gradient(90deg,transparent,black 12px,black calc(100% - 12px),transparent),
       linear-gradient(180deg,transparent,black 12px,black calc(100% - 12px),transparent);
     mask-composite:intersect;
@@ -154,15 +154,116 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     }
   }
 </style>
+<style>
+  :root {
+    --dark-glass: linear-gradient(155deg,#b897db28,#3b254945 43%,#130c21c9),#21152dd9;
+    --dark-edge: #d3a9ee42;
+  }
+  header {
+    border:0;
+    background:#170f2280;
+    box-shadow:none;
+    backdrop-filter:none;
+  }
+  .glass { border-radius:26px; }
+  .glass::after { display:none; }
+  .glass,.table-wrap {
+    background:linear-gradient(150deg,#c09de92c,#45305936 45%,#1d12297d),#20152e75;
+    border:1px solid #d2b2ea37;
+    box-shadow:inset 0 1px #f5deff23,0 12px 30px #08041140;
+    backdrop-filter:none;
+  }
+  nav { gap:8px; }
+  nav a,nav a:hover,nav a[aria-current],
+  main button:not(.sort),main button:not(.sort).primary,main .button,main .button.primary,main .filter {
+    border:1px solid var(--dark-edge);
+    border-radius:999px;
+    background:var(--dark-glass);
+    box-shadow:inset 0 1px #f8e0ff20,0 3px 10px #08041138;
+    backdrop-filter:none;
+    color:#f6ecff;
+  }
+  nav a[aria-current], main .primary { border-color:#e2b2ff80; }
+  main button:not(.sort).primary,main .button.primary { border-color:#e2b2ff80; }
+  nav a:hover,main button:not(.sort):not(:disabled):hover,main .button:hover,main .filter:hover {
+    background:linear-gradient(155deg,#ad79d366,#291a37ef 65%);
+  }
+  main input:not([type=checkbox]), .pill, .thumb, #order-tooltip { backdrop-filter:none; }
+  input[type=checkbox] {
+    appearance:none;
+    display:inline-grid;
+    place-content:center;
+    border:1px solid #bd9ad9a6;
+    border-radius:50%;
+    background:#22152f;
+    cursor:pointer;
+  }
+  input[type=checkbox]:checked,input[type=checkbox]:indeterminate { background:#a477d4; border-color:#d7b2f7; }
+  input[type=checkbox]:checked::after {
+    content:'';
+    width:4px;
+    height:7px;
+    border:solid #fff;
+    border-width:0 2px 2px 0;
+    transform:translateY(-1px) rotate(45deg);
+  }
+  input[type=checkbox]:indeterminate::after { content:''; width:7px; border-top:2px solid #fff; }
+  @media (forced-colors:active) { input[type=checkbox] { appearance:auto; } }
+  #assembly table { table-layout:fixed; min-width:820px; }
+  #assembly th:nth-child(1) { width:52px; }
+  #assembly th:nth-child(2) { width:104px; }
+  #assembly th:nth-child(3) { width:98px; }
+  #assembly th:nth-child(5),#assembly th:nth-child(6) { width:110px; }
+  #assembly th:nth-child(7) { width:79px; }
+  #assembly th:nth-child(8) { width:16%; }
+  #assembly td { overflow-wrap:anywhere; }
+  #assembly .sort::after { content:' ↑'; visibility:hidden; color:var(--purple); }
+  #assembly [aria-sort=ascending] .sort::after,
+  #assembly [aria-sort=descending] .sort::after { visibility:visible; }
+  #assembly [aria-sort=descending] .sort::after { content:' ↓'; }
+  html { scrollbar-gutter:stable; }
+  @media (max-width:760px) {
+    .header,main { width:calc(100% - 24px); }
+    .header { gap:10px 16px; }
+    nav a,main button:not(.sort),main .filter { min-height:44px; display:inline-flex; align-items:center; }
+    .heading { align-items:flex-start; gap:12px; margin-bottom:18px; }
+    #assembly .toolbar { gap:8px; }
+    #selection-status { width:100%; }
+    #assembly .table-wrap { overflow:visible; border:0; background:none; box-shadow:none; }
+    #assembly table,#assembly thead,#assembly tbody { display:block; min-width:0; }
+    #assembly thead { background:none; }
+    #assembly thead tr { display:flex; flex-wrap:wrap; align-items:center; gap:2px 6px; padding:4px 8px; }
+    #assembly thead th:nth-child(n) { width:auto; padding:0; border:0; }
+    #assembly thead th:nth-child(3) { display:none; }
+    #assembly thead .sort { min-height:40px; padding-inline:6px; }
+    #orders tr {
+      display:grid;
+      grid-template-columns:24px 40px minmax(0,1fr) auto;
+      gap:7px 10px;
+      align-items:center;
+      padding:12px;
+      margin-top:8px;
+      border:1px solid #d2b2ea37;
+      border-radius:16px;
+      background:#251733cf;
+    }
+    #orders tr[data-selected] { border-color:#d0a5f1; background:#4c2e60de; }
+    #orders td { padding:0; border:0; }
+    #orders td:nth-child(1) { grid-area:1 / 1; }
+    #orders td:nth-child(2) { grid-area:2 / 3; color:var(--muted); }
+    #orders td:nth-child(3) { grid-area:1 / 2 / span 2; }
+    #orders td:nth-child(4) { grid-area:1 / 3; }
+    #orders td:nth-child(5) { grid-area:1 / 4; justify-self:end; }
+    #orders td:nth-child(6) { grid-area:2 / 4; justify-self:end; }
+    #orders td:nth-child(7) { grid-area:3 / 2 / span 1 / span 2; }
+    #orders td:nth-child(7)::before { content:'Склад '; color:var(--muted); }
+    #orders td:nth-child(8) { grid-area:3 / 4; max-width:105px; text-align:right; }
+    #orders .thumb { width:40px; height:48px; }
+    #orders td:nth-child(n+6) { font-size:12px; }
+  }
+</style>
 </head>
 <body>
-<!-- Refraction technique inspired by github.com/evgenya2000/liquid-glass. -->
-<svg aria-hidden="true" width="0" height="0" style="position:absolute">
-  <filter id="glass-refraction" x="-8%" y="-8%" width="116%" height="116%" color-interpolation-filters="sRGB">
-    <feTurbulence type="fractalNoise" baseFrequency="0.009 0.019" numOctaves="2" seed="18" result="ripple" />
-    <feDisplacementMap in="SourceGraphic" in2="ripple" scale="16" xChannelSelector="R" yChannelSelector="G" />
-  </filter>
-</svg>
 <div id="glass-stage" aria-hidden="true"><canvas id="ambient-ink" data-dynamic></canvas></div>
 <header><div class="header"><div class="logo"><img class="brand-icon" alt="" width="32" height="32">Собирашкин</div><nav aria-label="Разделы"><a href="/">Сводка</a><a href="/assembly">Сборка</a><a href="/supplies">Поставки</a><a href="/shops">Магазины</a><a href="/vds">VDS</a></nav></div></header>
 <main>
@@ -183,8 +284,8 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     <p id="assembly-note" class="empty" hidden></p>
     <div class="table-wrap" id="table-wrap">
       <table aria-label="Заказы для сборки">
-        <thead><tr><th><input id="select-all" type="checkbox" aria-label="Выбрать все видимые заказы"></th><th><button class="sort" data-sort="id">Номер</button></th><th>Карточка</th><th><button class="sort" data-sort="title">Название</button></th><th><button class="sort" data-sort="price">Цена</button></th><th><button class="sort" data-sort="age">Возраст</button></th><th><button class="sort" data-sort="warehouseId">Склад</button></th><th><button class="sort" data-sort="shop">Магазин</button></th></tr></thead>
-        <tbody id="orders"></tbody>
+        <thead role="rowgroup"><tr role="row"><th role="columnheader"><input id="select-all" type="checkbox" aria-label="Выбрать все видимые заказы"></th><th role="columnheader"><button class="sort" data-sort="id">Номер</button></th><th role="columnheader">Карточка</th><th role="columnheader"><button class="sort" data-sort="title">Название</button></th><th role="columnheader"><button class="sort" data-sort="price">Цена</button></th><th role="columnheader"><button class="sort" data-sort="age">Таймер</button></th><th role="columnheader"><button class="sort" data-sort="warehouseId">Склад</button></th><th role="columnheader"><button class="sort" data-sort="shop">Магазин</button></th></tr></thead>
+        <tbody id="orders" role="rowgroup"></tbody>
       </table>
     </div>
   </section>
@@ -432,6 +533,7 @@ function renderAssembly() {
   byId('table-wrap').hidden = !visible.length;
   byId('orders').replaceChildren(...visible.map(order => {
     const row = element('tr');
+    row.setAttribute('role', 'row');
     const check = element('input');
     check.type = 'checkbox';
     check.dataset.orderKey = order.key;
@@ -469,6 +571,7 @@ function renderAssembly() {
     row.insertCell().append(timer);
     row.insertCell().textContent = order.warehouseId ?? '—';
     row.insertCell().textContent = order.shop;
+    for (const cell of row.cells) cell.setAttribute('role', 'cell');
     return row;
   }));
   if (previousOrder) {
@@ -714,7 +817,7 @@ if (section === 'assembly') setInterval(() => {
   let last = 0;
 
   function createInkShader(element) {
-    const gl = element.getContext('webgl', { alpha: true, premultipliedAlpha: false, antialias: false, preserveDrawingBuffer: true });
+    const gl = element.getContext('webgl', { alpha: true, premultipliedAlpha: false, antialias: false, preserveDrawingBuffer: false });
     if (!gl) return null;
     const vertexSource = 'attribute vec2 position; void main() { gl_Position = vec4(position, 0.0, 1.0); }';
     const fragmentSource = `
@@ -926,7 +1029,7 @@ if (section === 'assembly') setInterval(() => {
   function tick(now) {
     frame = 0;
     if (document.hidden || motion.matches || forcedColors.matches) return;
-    if (now - last >= 28) {
+    if (now - last >= 1000 / 30) {
       last = now;
       draw(now);
     }
@@ -938,13 +1041,13 @@ if (section === 'assembly') setInterval(() => {
     frame = 0;
     if (document.hidden || forcedColors.matches || !width || !height) return;
     draw(performance.now());
-    if (!motion.matches) frame = requestAnimationFrame(tick);
+    if (shader && !motion.matches) frame = requestAnimationFrame(tick);
   }
 
   function resize() {
     width = canvas.clientWidth;
     height = canvas.clientHeight;
-    scale = Math.min(1, (window.devicePixelRatio || 1) * .8);
+    scale = Math.min(.7, Math.sqrt(420000 / Math.max(1, width * height)));
     canvas.width = Math.max(1, Math.ceil(width * scale));
     canvas.height = Math.max(1, Math.ceil(height * scale));
     schedule();
@@ -959,7 +1062,7 @@ if (section === 'assembly') setInterval(() => {
   document.addEventListener('click', event => {
     if (!(event.target instanceof Element) || event.target.closest('a,button,input,label,select,textarea,header,.glass,table,[role=button]')) return;
     index = (index + 1) % palette.length;
-    if (motion.matches) schedule();
+    if (motion.matches || !shader) schedule();
   });
   document.addEventListener('visibilitychange', schedule);
   window.addEventListener('resize', resize, { passive: true });
@@ -975,99 +1078,7 @@ if (section === 'assembly') setInterval(() => {
   resize();
 })();
 </script>
-<script type="module">
-if (!matchMedia('(forced-colors: active)').matches) {
-  import('/liquidglass-v1.0.3.mjs').then(async ({ LiquidGlass }) => {
-    const stage = document.getElementById('glass-stage');
-    const preset = {blurAmount:.03, refraction:.69, chromAberration:.05, edgeHighlight:.05,
-      specular:0, fresnel:1, distortion:0, cornerRadius:40, zRadius:40, opacity:1,
-      saturation:0, brightness:0, shadowOpacity:.3, shadowSpread:19, bevelMode:0};
-    const glassSelector = 'main .glass,.table-wrap,.order-tooltip';
-    const buttonSelector = 'main a.button,main button:not(.sort):not(:disabled),main input:not(:disabled):not([type=hidden])';
-    const makeSlots = (count, button) => Array.from({length:count}, () => {
-      const slot = document.createElement('div');
-      slot.className = 'glass-proxy';
-      slot.dataset.config = JSON.stringify({button});
-      stage.append(slot);
-      return slot;
-    });
-    const panels = makeSlots(12, false);
-    const buttons = makeSlots(48, true);
-    const bindings = new Map();
-    let pressed;
-    let hovered;
-    let visible = [];
-    let pendingLayout = false;
-    let effect;
-    const layout = () => {
-      pendingLayout = false;
-      for (const panel of visible) panel.classList.remove('shader-backed');
-      visible = [];
-      bindings.clear();
-      const inViewport = panel => {
-        const rect = panel.getBoundingClientRect();
-        return rect.width > 10 && rect.height > 10 && rect.bottom > 0 && rect.top < innerHeight;
-      };
-      for (const [slots, selector] of [[panels,glassSelector],[buttons,buttonSelector]]) {
-        const targets = [...document.querySelectorAll(selector)].filter(inViewport);
-        for (const [index, slot] of slots.entries()) {
-          const panel = targets[index];
-          if (!panel) {
-            slot.style.cssText = 'left:-999px;width:1px;height:1px';
-            continue;
-          }
-          const {left, top, width, height} = panel.getBoundingClientRect();
-          const config = JSON.stringify(slots === buttons ? {button:true,cornerRadius:panel.matches('input[type=checkbox]') ? 4 : 8}
-            : panel.id === 'order-tooltip' ? {brightness:-.3,blurAmount:.25,cornerRadius:12} : {button:false});
-          if (slot.dataset.config !== config) slot.dataset.config = config;
-          slot.style.cssText = 'left:' + left + 'px;top:' + top + 'px;width:' + width + 'px;height:' + height + 'px';
-          visible.push(panel);
-          if (slots === buttons) bindings.set(panel, slot);
-          if (effect) panel.classList.add('shader-backed');
-        }
-      }
-      effect?.markChanged();
-    };
-    const schedule = () => {
-      if (pendingLayout) return;
-      pendingLayout = true;
-      requestAnimationFrame(layout);
-    };
-    layout();
-    effect = await LiquidGlass.init({root:stage, glassElements:[...panels,...buttons], defaults:preset});
-    layout();
-    const main = document.querySelector('main');
-    new ResizeObserver(schedule).observe(main);
-    const observer = new MutationObserver(schedule);
-    observer.observe(main, {childList:true, subtree:true, attributes:true, attributeFilter:['hidden','disabled']});
-    observer.observe(document.getElementById('order-tooltip'), {attributes:true, attributeFilter:['hidden','style']});
-    const buttonAt = node => node instanceof Element ? node.closest(buttonSelector) : null;
-    const send = (slot, type) => slot?.dispatchEvent(new PointerEvent(type));
-    document.addEventListener('pointerover', event => {
-      const target = buttonAt(event.target);
-      if (target === buttonAt(event.relatedTarget)) return;
-      send(hovered, 'pointerout');
-      hovered = bindings.get(target);
-      send(hovered, 'pointerover');
-    });
-    document.addEventListener('pointerout', event => {
-      if (buttonAt(event.target) === buttonAt(event.relatedTarget)) return;
-      send(hovered, 'pointerout');
-      hovered = null;
-    });
-    document.addEventListener('pointerdown', event => {
-      pressed = bindings.get(buttonAt(event.target));
-      send(pressed, 'pointerdown');
-    });
-    for (const type of ['pointerup','pointercancel']) window.addEventListener(type, () => {
-      send(pressed, type);
-      pressed = null;
-    });
-    window.addEventListener('scroll', schedule, {passive:true});
-    window.addEventListener('resize', schedule, {passive:true});
-  }).catch(error => console.warn('Regular Glass fallback:', error));
-}
-</script>
+
 </body>
 </html>
 
