@@ -45,7 +45,6 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     border-color: var(--glass-edge);
     box-shadow: none;
     backdrop-filter: blur(22px) saturate(155%);
-    backdrop-filter: url(#glass-refraction) blur(18px) saturate(155%);
   }
   header { background-color:#6c4c8b12; }
   .glass {
@@ -55,7 +54,6 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     content:''; position:absolute; inset:0; z-index:-2; border-radius:inherit; pointer-events:none;
     background:var(--glass-fill),#60438225;
     backdrop-filter:blur(22px) saturate(155%);
-    backdrop-filter:url(#glass-refraction) blur(18px) saturate(155%);
     mask-image:linear-gradient(90deg,transparent,black 12px,black calc(100% - 12px),transparent),
       linear-gradient(180deg,transparent,black 12px,black calc(100% - 12px),transparent);
     mask-composite:intersect;
@@ -176,17 +174,7 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     padding-inline:13px;
     text-align:center;
   }
-  #assembly th .sort::after {
-    content:'↑';
-    position:absolute;
-    inset-inline-end:3px;
-    top:50%;
-    transform:translateY(-50%);
-    visibility:hidden;
-    color:var(--purple);
-  }
-  #assembly th[aria-sort] .sort::after { visibility:visible; }
-  #assembly th[aria-sort=descending] .sort::after { content:'↓'; }
+  #assembly th[aria-sort] .sort::after { content:none; }
   #assembly th[aria-sort] .sort {
     background:#a16cce37;
     box-shadow:inset 0 0 0 1px #d6adf365;
@@ -231,7 +219,6 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     #assembly thead th:nth-child(3) { display:none; }
     #assembly thead th:first-child { width:29px; }
     #assembly thead .sort { min-height:36px; padding-inline:11px; font-size:12px; }
-    #assembly th .sort::after { inset-inline-end:2px; }
     #orders tr {
       display:grid;
       grid-template-columns:29px 32px minmax(0,1fr) auto;
@@ -291,7 +278,7 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     <p id="assembly-note" class="empty" hidden></p>
     <div class="table-wrap" id="table-wrap">
       <table aria-label="Заказы для сборки">
-        <thead role="rowgroup"><tr role="row"><th role="columnheader"><input id="select-all" type="checkbox" aria-label="Выбрать все видимые заказы"></th><th role="columnheader"><button class="sort" data-sort="id">Номер</button></th><th role="columnheader">Карточка</th><th role="columnheader"><button class="sort" data-sort="title">Название</button></th><th role="columnheader"><button class="sort" data-sort="price">Цена</button></th><th role="columnheader"><button class="sort" data-sort="age">Возраст</button></th><th role="columnheader"><button class="sort" data-sort="warehouseId">Склад</button></th><th role="columnheader"><button class="sort" data-sort="shop">Магазин</button></th></tr></thead>
+        <thead role="rowgroup"><tr role="row"><th role="columnheader"><input id="select-all" type="checkbox" aria-label="Выбрать все видимые заказы"></th><th role="columnheader"><button class="sort" data-sort="id">Номер</button></th><th role="columnheader">Карточка</th><th role="columnheader"><button class="sort" data-sort="title">Название</button></th><th role="columnheader"><button class="sort" data-sort="price">Цена</button></th><th role="columnheader"><button class="sort" data-sort="age">Таймер</button></th><th role="columnheader"><button class="sort" data-sort="warehouseId">Склад</button></th><th role="columnheader"><button class="sort" data-sort="shop">Магазин</button></th></tr></thead>
         <tbody id="orders" role="rowgroup"></tbody>
       </table>
     </div>
@@ -1086,97 +1073,109 @@ if (section === 'assembly') setInterval(() => {
 })();
 </script>
 <script type="module">
-if (!matchMedia('(max-width:760px), (forced-colors:active)').matches) {
-  import('/liquidglass-v1.0.3.mjs').then(async ({ LiquidGlass }) => {
-    const stage = document.getElementById('glass-stage');
-    const preset = {blurAmount:.03, refraction:.69, chromAberration:.05, edgeHighlight:.05,
-      specular:0, fresnel:1, distortion:0, cornerRadius:40, zRadius:40, opacity:1,
-      saturation:0, brightness:0, shadowOpacity:.3, shadowSpread:19, bevelMode:0};
-    const glassSelector = 'main .glass,.table-wrap,.order-tooltip';
-    const buttonSelector = 'main a.button,main button:not(.sort):not(:disabled),main input:not(:disabled):not([type=hidden])';
-    const makeSlots = (count, button) => Array.from({length:count}, () => {
-      const slot = document.createElement('div');
-      slot.className = 'glass-proxy';
-      slot.dataset.config = JSON.stringify({button});
-      stage.append(slot);
-      return slot;
-    });
-    const panels = makeSlots(12, false);
-    const buttons = makeSlots(48, true);
-    const bindings = new Map();
-    let pressed;
-    let hovered;
-    let visible = [];
-    let pendingLayout = false;
-    let effect;
-    const layout = () => {
-      pendingLayout = false;
-      for (const panel of visible) panel.classList.remove('shader-backed');
-      visible = [];
-      bindings.clear();
-      const inViewport = panel => {
-        const rect = panel.getBoundingClientRect();
-        return rect.width > 10 && rect.height > 10 && rect.bottom > 0 && rect.top < innerHeight;
-      };
-      for (const [slots, selector] of [[panels,glassSelector],[buttons,buttonSelector]]) {
-        const targets = [...document.querySelectorAll(selector)].filter(inViewport);
-        for (const [index, slot] of slots.entries()) {
-          const panel = targets[index];
-          if (!panel) {
-            slot.style.cssText = 'left:-999px;width:1px;height:1px';
-            continue;
+(() => {
+  const fallbackOnly = matchMedia('(max-width:760px), (forced-colors:active)');
+  if (fallbackOnly.matches) return;
+  const start = () => {
+    if (fallbackOnly.matches) return;
+    import('/liquidglass-v1.0.3.mjs').then(async ({ LiquidGlass }) => {
+      const stage = document.getElementById('glass-stage');
+      const preset = {blurAmount:.03, refraction:.69, chromAberration:.05, edgeHighlight:.05,
+        specular:0, fresnel:1, distortion:0, cornerRadius:40, zRadius:40, opacity:1,
+        saturation:0, brightness:0, shadowOpacity:.3, shadowSpread:19, bevelMode:0};
+      const glassSelector = 'main .glass,.table-wrap,.order-tooltip';
+      const buttonSelector = 'main a.button,main button:not(.sort):not(:disabled)';
+      const makeSlots = (count, button) => Array.from({length:count}, () => {
+        const slot = document.createElement('div');
+        slot.className = 'glass-proxy';
+        slot.dataset.config = JSON.stringify({button});
+        stage.append(slot);
+        return slot;
+      });
+      const panels = makeSlots(6, false);
+      const buttons = makeSlots(6, true);
+      const bindings = new Map();
+      let pressed;
+      let hovered;
+      let visible = [];
+      let pendingLayout = false;
+      let effect;
+      const layout = () => {
+        pendingLayout = false;
+        for (const panel of visible) panel.classList.remove('shader-backed');
+        visible = [];
+        bindings.clear();
+        const inViewport = panel => {
+          const rect = panel.getBoundingClientRect();
+          return rect.width > 10 && rect.height > 10 && rect.bottom > 0 && rect.top < innerHeight;
+        };
+        for (const [slots, selector] of [[panels,glassSelector],[buttons,buttonSelector]]) {
+          const targets = [...document.querySelectorAll(selector)].filter(inViewport);
+          for (const [index, slot] of slots.entries()) {
+            const panel = targets[index];
+            if (!panel) {
+              slot.style.cssText = 'left:-999px;width:1px;height:1px';
+              continue;
+            }
+            const {left, top, width, height} = panel.getBoundingClientRect();
+            const config = JSON.stringify(slots === buttons ? {button:true,cornerRadius:panel.matches('input[type=checkbox]') ? 4 : 8}
+              : panel.id === 'order-tooltip' ? {brightness:-.3,blurAmount:.25,cornerRadius:12} : {button:false});
+            if (slot.dataset.config !== config) slot.dataset.config = config;
+            slot.style.cssText = 'left:' + left + 'px;top:' + top + 'px;width:' + width + 'px;height:' + height + 'px';
+            visible.push(panel);
+            if (slots === buttons) bindings.set(panel, slot);
+            if (effect) panel.classList.add('shader-backed');
           }
-          const {left, top, width, height} = panel.getBoundingClientRect();
-          const config = JSON.stringify(slots === buttons ? {button:true,cornerRadius:panel.matches('input[type=checkbox]') ? 4 : 8}
-            : panel.id === 'order-tooltip' ? {brightness:-.3,blurAmount:.25,cornerRadius:12} : {button:false});
-          if (slot.dataset.config !== config) slot.dataset.config = config;
-          slot.style.cssText = 'left:' + left + 'px;top:' + top + 'px;width:' + width + 'px;height:' + height + 'px';
-          visible.push(panel);
-          if (slots === buttons) bindings.set(panel, slot);
-          if (effect) panel.classList.add('shader-backed');
         }
-      }
-      effect?.markChanged();
-    };
-    const schedule = () => {
-      if (pendingLayout) return;
-      pendingLayout = true;
-      requestAnimationFrame(layout);
-    };
-    layout();
-    effect = await LiquidGlass.init({root:stage, glassElements:[...panels,...buttons], defaults:preset});
-    layout();
-    const main = document.querySelector('main');
-    new ResizeObserver(schedule).observe(main);
-    const observer = new MutationObserver(schedule);
-    observer.observe(main, {childList:true, subtree:true, attributes:true, attributeFilter:['hidden','disabled']});
-    observer.observe(document.getElementById('order-tooltip'), {attributes:true, attributeFilter:['hidden','style']});
-    const buttonAt = node => node instanceof Element ? node.closest(buttonSelector) : null;
-    const send = (slot, type) => slot?.dispatchEvent(new PointerEvent(type));
-    document.addEventListener('pointerover', event => {
-      const target = buttonAt(event.target);
-      if (target === buttonAt(event.relatedTarget)) return;
-      send(hovered, 'pointerout');
-      hovered = bindings.get(target);
-      send(hovered, 'pointerover');
-    });
-    document.addEventListener('pointerout', event => {
-      if (buttonAt(event.target) === buttonAt(event.relatedTarget)) return;
-      send(hovered, 'pointerout');
-      hovered = null;
-    });
-    document.addEventListener('pointerdown', event => {
-      pressed = bindings.get(buttonAt(event.target));
-      send(pressed, 'pointerdown');
-    });
-    for (const type of ['pointerup','pointercancel']) window.addEventListener(type, () => {
-      send(pressed, type);
-      pressed = null;
-    });
-    window.addEventListener('scroll', schedule, {passive:true});
-    window.addEventListener('resize', schedule, {passive:true});
-  }).catch(error => console.warn('Regular Glass fallback:', error));
-}
+        effect?.markChanged();
+      };
+      const schedule = () => {
+        if (pendingLayout) return;
+        pendingLayout = true;
+        requestAnimationFrame(layout);
+      };
+      layout();
+      effect = await LiquidGlass.init({root:stage, glassElements:[...panels,...buttons], defaults:preset});
+      layout();
+      const main = document.querySelector('main');
+      new ResizeObserver(schedule).observe(main);
+      const observer = new MutationObserver(records => {
+        if (records.some(record => record.type === 'attributes'
+          || [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === Node.ELEMENT_NODE))) schedule();
+      });
+      observer.observe(main, {childList:true, subtree:true, attributes:true, attributeFilter:['hidden','disabled']});
+      observer.observe(document.getElementById('order-tooltip'), {attributes:true, attributeFilter:['hidden','style']});
+      const buttonAt = node => node instanceof Element ? node.closest(buttonSelector) : null;
+      const send = (slot, type) => slot?.dispatchEvent(new PointerEvent(type));
+      document.addEventListener('pointerover', event => {
+        const target = buttonAt(event.target);
+        if (target === buttonAt(event.relatedTarget)) return;
+        send(hovered, 'pointerout');
+        hovered = bindings.get(target);
+        send(hovered, 'pointerover');
+      });
+      document.addEventListener('pointerout', event => {
+        if (buttonAt(event.target) === buttonAt(event.relatedTarget)) return;
+        send(hovered, 'pointerout');
+        hovered = null;
+      });
+      document.addEventListener('pointerdown', event => {
+        pressed = bindings.get(buttonAt(event.target));
+        send(pressed, 'pointerdown');
+      });
+      for (const type of ['pointerup','pointercancel']) window.addEventListener(type, () => {
+        send(pressed, type);
+        pressed = null;
+      });
+      window.addEventListener('scroll', schedule, {passive:true});
+      window.addEventListener('resize', schedule, {passive:true});
+    }).catch(error => console.warn('Regular Glass fallback:', error));
+  };
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if ('requestIdleCallback' in window) window.requestIdleCallback(start, { timeout:700 });
+    else setTimeout(start, 0);
+  }));
+})();
 </script>
 </body>
 </html>
