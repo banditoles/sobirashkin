@@ -183,8 +183,7 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
   }
   @media (max-width:760px) {
     body { position:relative; font-size:14px; }
-    #glass-stage { position:absolute; inset:0 0 auto; height:100vh; height:100svh; }
-    #glass-stage > :not(#ambient-ink) { display:none; }
+    #glass-stage { position:absolute; inset:0 0 auto; height:100vh; height:100svh; overflow:hidden; }
     header,.glass,main .button,main button,main .filter,main input,.pill,.thumb,#order-tooltip {
       backdrop-filter:none;
       box-shadow:none;
@@ -3947,16 +3946,17 @@ export {
 
 
 (() => {
-  const fallbackOnly = matchMedia('(max-width:760px), (forced-colors:active)');
+  const fallbackOnly = matchMedia('(forced-colors:active)');
   if (fallbackOnly.matches) return;
   const start = () => {
     if (fallbackOnly.matches) return;
     (async () => {
       const stage = document.getElementById('glass-stage');
+      const mobile = matchMedia('(max-width:760px)');
       const preset = {blurAmount:.03, refraction:.69, chromAberration:.05, edgeHighlight:.05,
         specular:0, fresnel:1, distortion:0, cornerRadius:40, zRadius:40, opacity:1,
         saturation:0, brightness:0, shadowOpacity:.3, shadowSpread:19, bevelMode:0};
-      const glassSelector = 'main .glass,.table-wrap,.order-tooltip';
+      const glassSelector = () => mobile.matches ? 'main .glass' : 'main .glass,.table-wrap,.order-tooltip';
       const buttonSelector = 'main a.button,main button:not(.sort):not(:disabled)';
       const makeSlots = (count, button) => Array.from({length:count}, () => {
         const slot = document.createElement('div');
@@ -3965,8 +3965,8 @@ export {
         stage.append(slot);
         return slot;
       });
-      const panels = makeSlots(6, false);
-      const buttons = makeSlots(6, true);
+      const panels = makeSlots(mobile.matches ? 4 : 6, false);
+      const buttons = makeSlots(mobile.matches ? 3 : 6, true);
       const bindings = new Map();
       let pressed;
       let hovered;
@@ -3978,11 +3978,13 @@ export {
         for (const panel of visible) panel.classList.remove('shader-backed');
         visible = [];
         bindings.clear();
+        const stageRect = stage.getBoundingClientRect();
         const inViewport = panel => {
           const rect = panel.getBoundingClientRect();
-          return rect.width > 10 && rect.height > 10 && rect.bottom > 0 && rect.top < innerHeight;
+          return rect.width > 10 && rect.height > 10
+            && rect.bottom > stageRect.top && rect.top < stageRect.bottom - 10;
         };
-        for (const [slots, selector] of [[panels,glassSelector],[buttons,buttonSelector]]) {
+        for (const [slots, selector] of [[panels,glassSelector()],[buttons,buttonSelector]]) {
           const targets = [...document.querySelectorAll(selector)].filter(inViewport);
           for (const [index, slot] of slots.entries()) {
             const panel = targets[index];
@@ -3990,11 +3992,15 @@ export {
               slot.style.cssText = 'left:-999px;width:1px;height:1px';
               continue;
             }
-            const {left, top, width, height} = panel.getBoundingClientRect();
-            const config = JSON.stringify(slots === buttons ? {button:true,cornerRadius:panel.matches('input[type=checkbox]') ? 4 : 8}
-              : panel.id === 'order-tooltip' ? {brightness:-.3,blurAmount:.25,cornerRadius:12} : {button:false});
+            const rect = panel.getBoundingClientRect();
+            const left = rect.left - stageRect.left;
+            const top = rect.top - stageRect.top;
+            const height = Math.min(rect.height, stageRect.height - top);
+            const config = JSON.stringify(slots === buttons ? {button:true,cornerRadius:8}
+              : panel.id === 'order-tooltip' ? {brightness:-.3,blurAmount:.25,cornerRadius:12}
+              : mobile.matches ? {button:false,cornerRadius:12,shadowOpacity:0} : {button:false});
             if (slot.dataset.config !== config) slot.dataset.config = config;
-            slot.style.cssText = 'left:' + left + 'px;top:' + top + 'px;width:' + width + 'px;height:' + height + 'px';
+            slot.style.cssText = 'left:' + left + 'px;top:' + top + 'px;width:' + rect.width + 'px;height:' + height + 'px';
             visible.push(panel);
             if (slots === buttons) bindings.set(panel, slot);
             if (effect) panel.classList.add('shader-backed');
@@ -4040,7 +4046,9 @@ export {
         send(pressed, type);
         pressed = null;
       });
-      window.addEventListener('scroll', schedule, {passive:true});
+      window.addEventListener('scroll', () => {
+        if (!mobile.matches) schedule();
+      }, {passive:true});
       window.addEventListener('resize', schedule, {passive:true});
     })().catch(error => console.warn('Regular Glass fallback:', error));
   };
