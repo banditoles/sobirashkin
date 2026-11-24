@@ -144,7 +144,7 @@
     position:relative;
     isolation:isolate;
     min-height:30px;
-    padding:3px 7px;
+    padding:3px 15px;
     border:0;
     border-radius:9px;
     background:transparent;
@@ -169,7 +169,15 @@
     th .sort:enabled:hover { background:transparent; }
     .sort:hover::before { border-color:#dab9f6ad; }
   }
-  .sort::after { content:'↑'; visibility:hidden; color:var(--purple); }
+  .sort::after {
+    content:'↑';
+    position:absolute;
+    inset-inline-end:4px;
+    top:50%;
+    transform:translateY(-50%);
+    visibility:hidden;
+    color:var(--purple);
+  }
   th[aria-sort] .sort::after { visibility:visible; }
   th[aria-sort=descending] .sort::after { content:'↓'; }
   .thumb { display:grid; place-items:center; width:42px; height:48px; overflow:hidden; border:1px solid var(--line); border-radius:7px; color:var(--muted); background:#2e233a; }
@@ -267,7 +275,7 @@
     .check-target { width:44px; height:44px; }
     thead th:nth-child(n) { width:auto; padding:0; border:0; }
     thead th:nth-child(3) { display:none; }
-    .sort { min-width:44px; min-height:44px; font-size:12px; gap:2px; padding-inline:6px; }
+    .sort { min-width:44px; min-height:44px; font-size:12px; padding-inline:13px; }
     .sort::before { inset-block:6px; }
     #orders tr {
       display:grid;
