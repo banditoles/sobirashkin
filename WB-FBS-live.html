@@ -260,6 +260,19 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     #orders td:nth-child(8) { grid-area:3 / 4; max-width:105px; text-align:right; }
     #orders .thumb { width:40px; height:48px; }
     #orders td:nth-child(n+6) { font-size:12px; }
+    body {
+      background:radial-gradient(ellipse at 18% 0%,#33184f 0,transparent 48%),
+        radial-gradient(ellipse at 100% 32%,#221135 0,transparent 48%),#110c1c;
+    }
+    #glass-stage { display:none; }
+    main, #order-tooltip:not([hidden]) { animation:none; }
+    header, nav a, nav a[aria-current], .glass, main button:not(.sort),
+    main button:not(.sort).primary, main .button, main .button.primary,
+    main .filter, #order-tooltip, .thumb, .pill {
+      box-shadow:none;
+      backdrop-filter:none;
+    }
+    [data-glass-lit]::before { display:none; }
   }
 </style>
 </head>
@@ -795,6 +808,7 @@ if (section === 'assembly') setInterval(() => {
       event.target.setAttribute('data-glass-lit', '');
     }
   });
+  const mobile = matchMedia('(max-width:760px)');
   const fallback = document.getElementById('ambient-ink');
   const ink = fallback.getContext('2d');
   const surface = fallback.cloneNode();
@@ -1028,7 +1042,7 @@ if (section === 'assembly') setInterval(() => {
 
   function tick(now) {
     frame = 0;
-    if (document.hidden || motion.matches || forcedColors.matches) return;
+    if (document.hidden || mobile.matches || motion.matches || forcedColors.matches) return;
     if (now - last >= 1000 / 30) {
       last = now;
       draw(now);
@@ -1039,7 +1053,7 @@ if (section === 'assembly') setInterval(() => {
   function schedule() {
     cancelAnimationFrame(frame);
     frame = 0;
-    if (document.hidden || forcedColors.matches || !width || !height) return;
+    if (document.hidden || mobile.matches || forcedColors.matches || !width || !height) return;
     draw(performance.now());
     if (shader && !motion.matches) frame = requestAnimationFrame(tick);
   }
@@ -1066,6 +1080,7 @@ if (section === 'assembly') setInterval(() => {
   });
   document.addEventListener('visibilitychange', schedule);
   window.addEventListener('resize', resize, { passive: true });
+  mobile.addEventListener('change', resize);
   motion.addEventListener('change', schedule);
   forcedColors.addEventListener('change', resize);
   surface.addEventListener('webglcontextlost', () => {
