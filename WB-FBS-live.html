@@ -140,7 +140,35 @@
   th:nth-child(5),th:nth-child(6) { width:108px; }
   th:nth-child(7) { width:78px; }
   th:nth-child(8) { width:16%; }
-  .sort { min-height:30px; padding:3px 4px; border:0; border-radius:6px; background:transparent; color:var(--text); white-space:nowrap; }
+  .sort {
+    position:relative;
+    isolation:isolate;
+    min-height:30px;
+    padding:3px 7px;
+    border:0;
+    border-radius:9px;
+    background:transparent;
+    color:var(--text);
+    white-space:nowrap;
+  }
+  .sort::before {
+    content:'';
+    position:absolute;
+    z-index:-1;
+    inset:2px 0;
+    border:1px solid #d7b9f34a;
+    border-radius:inherit;
+    background:linear-gradient(155deg,#c5a4e22b,#20172b59);
+    pointer-events:none;
+  }
+  th[aria-sort] .sort::before {
+    border-color:#dab9f6ad;
+    background:linear-gradient(155deg,#a473ca65,#3b265a98);
+  }
+  @media (hover:hover) {
+    th .sort:enabled:hover { background:transparent; }
+    .sort:hover::before { border-color:#dab9f6ad; }
+  }
   .sort::after { content:'↑'; visibility:hidden; color:var(--purple); }
   th[aria-sort] .sort::after { visibility:visible; }
   th[aria-sort=descending] .sort::after { content:'↓'; }
@@ -235,11 +263,12 @@
     .table-wrap { overflow:visible; margin-top:6px; border:0; background:none; box-shadow:none; }
     table,thead,tbody { display:block; min-width:0; }
     thead { background:none; }
-    thead tr { display:flex; flex-wrap:wrap; align-items:center; padding:2px 7px; }
+    thead tr { display:flex; flex-wrap:wrap; align-items:center; column-gap:4px; padding:2px 7px; }
     .check-target { width:44px; height:44px; }
     thead th:nth-child(n) { width:auto; padding:0; border:0; }
     thead th:nth-child(3) { display:none; }
-    .sort { min-width:44px; min-height:44px; font-size:12px; gap:2px; padding-inline:4px; }
+    .sort { min-width:44px; min-height:44px; font-size:12px; gap:2px; padding-inline:6px; }
+    .sort::before { inset-block:6px; }
     #orders tr {
       display:grid;
       grid-template-columns:44px 32px minmax(0,1fr) minmax(0,auto);
