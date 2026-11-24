@@ -161,6 +161,114 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     }
   }
 </style>
+<style>
+  nav a,button,.button { text-align:center; }
+  #assembly table {
+    table-layout:fixed;
+    min-width:820px;
+    text-align:center;
+  }
+  #assembly th,#assembly td { vertical-align:middle; overflow-wrap:anywhere; }
+  #assembly th:nth-child(1) { width:56px; }
+  #assembly th:nth-child(2) { width:92px; }
+  #assembly th:nth-child(3) { width:94px; }
+  #assembly th:nth-child(5),#assembly th:nth-child(6) { width:104px; }
+  #assembly th:nth-child(7) { width:91px; }
+  #assembly th:nth-child(8) { width:15%; }
+  #assembly .thumb { margin-inline:auto; }
+  #assembly input[type=checkbox] { margin:0; }
+  #assembly thead .sort {
+    position:relative;
+    max-width:100%;
+    padding-inline:13px;
+    text-align:center;
+  }
+  #assembly th .sort::after {
+    content:'↑';
+    position:absolute;
+    inset-inline-end:3px;
+    top:50%;
+    transform:translateY(-50%);
+    visibility:hidden;
+    color:var(--purple);
+  }
+  #assembly th[aria-sort] .sort::after { visibility:visible; }
+  #assembly th[aria-sort=descending] .sort::after { content:'↓'; }
+  #assembly th[aria-sort] .sort {
+    background:#a16cce37;
+    box-shadow:inset 0 0 0 1px #d6adf365;
+  }
+  @media (max-width:760px) {
+    body { position:relative; font-size:14px; }
+    #glass-stage { position:absolute; inset:0 0 auto; height:100vh; height:100svh; }
+    #glass-stage > :not(#ambient-ink) { display:none; }
+    header,.glass,main .button,main button,main .filter,main input,.pill,.thumb,#order-tooltip {
+      backdrop-filter:none;
+      box-shadow:none;
+    }
+    .glass::after,[data-glass-lit]::before { display:none; }
+    .glass,.glass.shader-backed { background:linear-gradient(160deg,#38234eaf,#1b1329a8); }
+    #order-tooltip,#order-tooltip.shader-backed { box-shadow:none; }
+    main { animation:none; }
+    .header,main { width:calc(100% - 20px); }
+    .header { min-height:48px; padding:5px 0; gap:4px 10px; }
+    .logo { gap:6px; font-size:15px; }
+    .brand-icon { width:25px; height:25px; }
+    nav a { padding-inline:8px; }
+    main { padding:15px 0 24px; }
+    h1 { font-size:28px; }
+    .lead { margin-top:4px; }
+    .heading { gap:7px; margin-bottom:12px; align-items:center; }
+    .metrics { grid-template-columns:repeat(auto-fit,minmax(min(100%,125px),1fr)); gap:6px; }
+    .metric,.card,.panel { padding:9px; border-radius:12px; }
+    .metric strong,.count { font-size:23px; }
+    .section-title { margin:16px 0 7px; }
+    #assembly .filters,#assembly .toolbar { gap:5px; margin-top:7px; }
+    #selection-status { flex-basis:100%; margin:0; font-size:12px; }
+    #assembly .table-wrap,#assembly .table-wrap.shader-backed {
+      overflow:visible;
+      border:0;
+      background:none;
+      margin-top:6px;
+    }
+    #assembly table,#assembly thead,#assembly tbody { display:block; min-width:0; }
+    #assembly thead { background:none; }
+    #assembly thead tr { display:flex; align-items:center; flex-wrap:wrap; gap:3px; padding:2px 5px; }
+    #assembly thead th:nth-child(n) { width:auto; padding:0; border:0; }
+    #assembly thead th:nth-child(3) { display:none; }
+    #assembly thead th:first-child { width:29px; }
+    #assembly thead .sort { min-height:36px; padding-inline:11px; font-size:12px; }
+    #assembly th .sort::after { inset-inline-end:2px; }
+    #orders tr {
+      display:grid;
+      grid-template-columns:29px 32px minmax(0,1fr) auto;
+      grid-template-rows:repeat(3,auto);
+      gap:2px 6px;
+      align-items:center;
+      margin-top:5px;
+      padding:6px 7px 6px 4px;
+      border:1px solid #e1c4f338;
+      border-radius:12px;
+      background:#231630a3;
+    }
+    #orders tr[data-selected] { background:#5b387aab; border-color:#d7aff28f; }
+    #assembly #orders td { padding:0; border:0; line-height:1.22; }
+    #orders td:nth-child(1),#orders td:nth-child(3) { grid-row:1 / -1; justify-self:center; }
+    #orders td:nth-child(1) { grid-column:1; }
+    #orders td:nth-child(3) { grid-column:2; }
+    #orders td:nth-child(4) { grid-area:1 / 3; }
+    #orders td:nth-child(2) { grid-area:2 / 3; font-size:12px; color:var(--muted); }
+    #orders td:nth-child(7) { grid-area:3 / 3; }
+    #orders td:nth-child(7)::before { content:'Склад '; }
+    #assembly #orders td:nth-child(2),#assembly #orders td:nth-child(4),#assembly #orders td:nth-child(7) { text-align:left; }
+    #assembly #orders td:nth-child(5),#assembly #orders td:nth-child(6),#assembly #orders td:nth-child(8) { text-align:right; }
+    #orders td:nth-child(5) { grid-area:1 / 4; }
+    #orders td:nth-child(6) { grid-area:2 / 4; }
+    #orders td:nth-child(8) { grid-area:3 / 4; max-width:90px; }
+    #orders td:nth-child(n+6),#orders td:nth-child(4) .muted { font-size:11px; color:var(--muted); }
+    #assembly #orders .thumb { width:32px; height:38px; }
+  }
+</style>
 </head>
 <body>
 <!-- Refraction technique inspired by github.com/evgenya2000/liquid-glass. -->
@@ -190,8 +298,8 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     <p id="assembly-note" class="empty" hidden></p>
     <div class="table-wrap" id="table-wrap">
       <table aria-label="Заказы для сборки">
-        <thead><tr><th><input id="select-all" type="checkbox" aria-label="Выбрать все видимые заказы"></th><th><button class="sort" data-sort="id">Номер</button></th><th>Карточка</th><th><button class="sort" data-sort="title">Название</button></th><th><button class="sort" data-sort="price">Цена</button></th><th><button class="sort" data-sort="age">Возраст</button></th><th><button class="sort" data-sort="warehouseId">Склад</button></th><th><button class="sort" data-sort="shop">Магазин</button></th></tr></thead>
-        <tbody id="orders"></tbody>
+        <thead role="rowgroup"><tr role="row"><th role="columnheader"><input id="select-all" type="checkbox" aria-label="Выбрать все видимые заказы"></th><th role="columnheader"><button class="sort" data-sort="id">Номер</button></th><th role="columnheader">Карточка</th><th role="columnheader"><button class="sort" data-sort="title">Название</button></th><th role="columnheader"><button class="sort" data-sort="price">Цена</button></th><th role="columnheader"><button class="sort" data-sort="age">Возраст</button></th><th role="columnheader"><button class="sort" data-sort="warehouseId">Склад</button></th><th role="columnheader"><button class="sort" data-sort="shop">Магазин</button></th></tr></thead>
+        <tbody id="orders" role="rowgroup"></tbody>
       </table>
     </div>
   </section>
@@ -440,6 +548,7 @@ function renderAssembly() {
   byId('table-wrap').hidden = !visible.length;
   byId('orders').replaceChildren(...visible.map(order => {
     const row = element('tr');
+    row.setAttribute('role', 'row');
     const check = element('input');
     check.type = 'checkbox';
     check.dataset.orderKey = order.key;
@@ -477,6 +586,7 @@ function renderAssembly() {
     row.insertCell().append(timer);
     row.insertCell().textContent = order.warehouseId ?? '—';
     row.insertCell().textContent = order.shop;
+    for (const cell of row.cells) cell.setAttribute('role', 'cell');
     return row;
   }));
   if (previousOrder) {
@@ -3854,7 +3964,7 @@ export {
 
 
 
-if (!matchMedia('(forced-colors: active)').matches) {
+if (!matchMedia('(max-width:760px), (forced-colors:active)').matches) {
   (async () => {
     const stage = document.getElementById('glass-stage');
     const preset = {blurAmount:.03, refraction:.69, chromAberration:.05, edgeHighlight:.05,
