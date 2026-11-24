@@ -176,7 +176,14 @@
   .supply-list,.supply-state { margin-top:8px; }
   @media (max-width:820px) {
     html { scrollbar-gutter:auto; }
-    body { font-size:16px; }
+    body {
+      font-size:16px;
+      background:
+        radial-gradient(ellipse 37% 22% at 65% 34%,#a956c870,transparent 86%) top center / 100% 195px no-repeat,
+        radial-gradient(ellipse 38% 27% at 43% 47%,#4f409caa,transparent 87%) top center / 100% 195px no-repeat,
+        radial-gradient(ellipse 30% 23% at 79% 47%,#62409c8c,transparent 90%) top center / 100% 195px no-repeat,
+        linear-gradient(160deg,#21152e 0,#11101a 360px) no-repeat,var(--bg);
+    }
     .header,main { width:calc(100% - 20px); }
     .header { min-height:46px; gap:4px 10px; padding-block:5px; }
     .logo { font-size:14px; gap:5px; }
