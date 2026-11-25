@@ -5,13 +5,15 @@ import sqlite3
 import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from hashlib import sha256
 from html import escape
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import uuid4
+from xml.etree import ElementTree
 
 from cryptography.fernet import Fernet, InvalidToken
 from stats_image import render_stats
@@ -21,8 +23,13 @@ MSK = timezone(timedelta(hours=3))
 MARKET = "https://marketplace-api.wildberries.ru"
 CONTENT = "https://content-api.wildberries.ru"
 COMMON = "https://common-api.wildberries.ru"
+SALES = "https://statistics-api.wildberries.ru/api/v1/supplier/sales"
 ADD, STATS, ASSEMBLY, PING = "Добавить магазин", "Статистика", "Список сборки", "Пинг"
 MENU = {"keyboard": [[STATS, ASSEMBLY], [ADD, PING]], "resize_keyboard": True}
+STATS_BUTTONS = {"inline_keyboard": [[
+    {"text": "Количество", "callback_data": "stats:quantity"},
+    {"text": "Сумма", "callback_data": "stats:amount"},
+]]}
 
 
 class ApiError(Exception):
@@ -39,7 +46,7 @@ class NoRedirects(HTTPRedirectHandler):
 OPENER = build_opener(NoRedirects())
 
 
-def request(url, service, *, token=None, body=None, photo=None, timeout=15, read_json=True):
+def request(url, service, *, token=None, body=None, photo=None, timeout=15, read_json=True, raw=False):
     headers = {"Authorization": token} if token else {}
     data = None
     if photo is not None:
@@ -59,6 +66,8 @@ def request(url, service, *, token=None, body=None, photo=None, timeout=15, read
         headers["Content-Type"] = "application/json"
     try:
         with OPENER.open(Request(url, data=data, headers=headers), timeout=timeout) as response:
+            if raw:
+                return response.read()
             return json.load(response) if read_json else response.status
     except HTTPError as error:
         raise ApiError(f"{service} — HTTP {error.code}", status=error.code) from None
@@ -94,8 +103,7 @@ def month_counts(token, now):
     return counts, sorted(seen)
 
 
-def status_counts(token, order_ids):
-    sold = delivery = 0
+def order_statuses(token, order_ids):
     for start in range(0, len(order_ids), 1000):
         if start:
             time.sleep(0.25)
@@ -104,16 +112,81 @@ def status_counts(token, order_ids):
         statuses = {order["id"]: order for order in result["orders"]}
         if statuses.keys() != set(batch):
             raise ApiError("WB вернул неполный список статусов")
-        for order in statuses.values():
-            wb = order["wbStatus"]
-            supplier = order["supplierStatus"]
-            sold += wb == "sold"
-            delivery += (
-                wb in {"sorted", "postponed_delivery", "accepted_by_carrier",
-                       "sent_to_carrier", "delivering_by_carrier"}
-                or (supplier == "complete" and wb == "waiting")
-            )
+        yield from statuses.values()
+
+
+def status_counts(token, order_ids):
+    sold = delivery = 0
+    for order in order_statuses(token, order_ids):
+        wb = order["wbStatus"]
+        supplier = order["supplierStatus"]
+        sold += wb == "sold"
+        delivery += (
+            wb in {"sorted", "postponed_delivery", "accepted_by_carrier",
+                   "sent_to_carrier", "delivering_by_carrier"}
+            or (supplier == "complete" and wb == "waiting")
+        )
     return sold, delivery
+
+
+def assembly_count(token, new_ids):
+    cursor = 0
+    cursors = {cursor}
+    assembly_ids = set()
+    while True:
+        page = request(f"{MARKET}/api/v3/supplies?limit=1000&next={cursor}", "WB поставки", token=token)
+        if not page["supplies"]:
+            break
+        for supply in page["supplies"]:
+            if not supply["done"]:
+                supply_id = quote(supply["id"], safe="")
+                time.sleep(0.22)
+                result = request(f"{MARKET}/api/marketplace/v3/supplies/{supply_id}/order-ids",
+                                 "WB заказы поставки", token=token)
+                assembly_ids.update(result["orderIds"])
+        cursor = page["next"]
+        if cursor in cursors:
+            raise ApiError("WB повторил страницу поставок")
+        cursors.add(cursor)
+        time.sleep(0.22)
+    return sum(order["supplierStatus"] == "confirm"
+               for order in order_statuses(token, sorted(assembly_ids - new_ids)))
+
+
+def cny_rate(today):
+    query = urlencode({"date_req": today.strftime("%d/%m/%Y")})
+    xml = request(f"https://www.cbr.ru/scripts/XML_daily.asp?{query}", "ЦБ РФ", raw=True)
+    try:
+        node = ElementTree.fromstring(xml).find("./Valute[CharCode='CNY']")
+        if node is not None:
+            value = Decimal(node.findtext("Value", "").replace(",", "."))
+            nominal = Decimal(node.findtext("Nominal", ""))
+            if value.is_finite() and nominal.is_finite() and value > 0 and nominal > 0:
+                return value / nominal
+    except (ElementTree.ParseError, ArithmeticError):
+        pass
+    raise ApiError("ЦБ РФ не вернул курс юаня")
+
+
+def purchase_amounts(sales, now, rate):
+    if not isinstance(sales, list) or len(sales) >= 80000:
+        raise ApiError("WB не вернул полный отчёт продаж")
+    month = [Decimal(0) for _ in range(now.day)]
+    seen = set()
+    for row in sales:
+        sale_id = row["saleID"]
+        if not sale_id.startswith("S") or sale_id in seen:
+            continue
+        sale_date = datetime.fromisoformat(row["date"])
+        sale_date = sale_date.astimezone(MSK) if sale_date.tzinfo else sale_date.replace(tzinfo=MSK)
+        if sale_date.date().replace(day=1) != now.date().replace(day=1) or sale_date > now:
+            continue
+        value = Decimal(str(row["finishedPrice"]))
+        if not value.is_finite() or value < 0:
+            raise ValueError("Некорректная сумма продажи")
+        month[sale_date.day - 1] += value
+        seen.add(sale_id)
+    return [int((value * 100 / rate).quantize(Decimal(1), rounding=ROUND_HALF_UP)) for value in month]
 
 
 def card_titles(token, wanted):
@@ -154,6 +227,7 @@ class Bot:
         self.db = db
         self.add_until = 0
         self.pending_shop = None
+        self.sales_cache = {}
         db.execute("CREATE TABLE IF NOT EXISTS shops (id TEXT PRIMARY KEY, name TEXT, token BLOB)")
 
     def telegram(self, method, *, photo=None, **body):
@@ -162,7 +236,7 @@ class Bot:
             raise ApiError("Telegram отклонил запрос")
         return result["result"]
 
-    def send(self, text, *, code_lines=()):
+    def send(self, text, *, code_lines=(), reply_markup=None):
         formatting = {"parse_mode": "HTML"} if code_lines else {}
         chunk = ""
         for line in text.splitlines():
@@ -177,7 +251,8 @@ class Bot:
                     line = f"<code>{line}</code>"
             chunk += line + "\n"
         if chunk:
-            self.telegram("sendMessage", chat_id=self.owner, text=chunk, reply_markup=MENU, **formatting)
+            self.telegram("sendMessage", chat_id=self.owner, text=chunk,
+                          reply_markup=reply_markup or MENU, **formatting)
 
     def add_shop(self, token):
         manual_id = "manual:" + sha256(token.encode()).hexdigest()
@@ -216,10 +291,24 @@ class Bot:
         reports = []
         errors = []
         items = Counter()
+        currency = os.environ.get("WB_SALES_CURRENCY", "RUB").strip().upper()
+        if action == "stats:amount" and currency not in {"RUB", "CNY"}:
+            raise ApiError("WB_SALES_CURRENCY должен быть RUB или CNY.")
+        rate = (cny_rate(now) if currency == "RUB" else Decimal(1)) if action == "stats:amount" else None
         for name, encrypted in shops:
             try:
                 token = self.cipher.decrypt(encrypted).decode()
                 if action == STATS:
+                    orders = request(f"{MARKET}/api/v3/orders/new", "WB новые заказы", token=token)["orders"]
+                    new_ids = {order["id"] for order in orders}
+                    try:
+                        assembly = assembly_count(token, new_ids)
+                    except (ApiError, KeyError, TypeError, ValueError) as error:
+                        assembly = None
+                        detail = str(error) if isinstance(error, ApiError) else "ответ WB изменился"
+                        errors.append(f"{name} · сборка недоступна ({detail})")
+                    reports.append((name, len(new_ids), assembly))
+                elif action == "stats:quantity":
                     days, order_ids = month_counts(token, now)
                     try:
                         sold, delivery = status_counts(token, order_ids)
@@ -228,6 +317,18 @@ class Bot:
                         detail = str(error) if isinstance(error, ApiError) else "ответ WB изменился"
                         errors.append(f"{name} · статусы недоступны ({detail})")
                     reports.append((name, [days[day] for day in range(1, now.day + 1)], sold, delivery))
+                elif action == "stats:amount":
+                    key = (encrypted, now.date())
+                    cached = self.sales_cache.get(key)
+                    if cached and time.monotonic() - cached[0] < 120:
+                        sales = cached[1]
+                    else:
+                        query = urlencode({"dateFrom": now.date().replace(day=1).isoformat()})
+                        sales = request(f"{SALES}?{query}", "WB продажи", token=token)
+                        self.sales_cache = {k: v for k, v in self.sales_cache.items()
+                                            if time.monotonic() - v[0] < 120 and k[1] == now.date()}
+                        self.sales_cache[key] = (time.monotonic(), sales)
+                    reports.append((name, purchase_amounts(sales, now, rate), None, None))
                 else:
                     orders = request(f"{MARKET}/api/v3/orders/new", "WB заказы", token=token)["orders"]
                     try:
@@ -244,15 +345,32 @@ class Bot:
                 errors.append(f"{name} · не удалось расшифровать токен")
             except ApiError as error:
                 errors.append(f"{name} · {error}")
-            except (KeyError, TypeError, ValueError):
+            except (KeyError, TypeError, ValueError, ArithmeticError):
                 errors.append(f"{name} · неожиданный ответ WB")
         code_lines = ()
         if action == STATS:
+            new_total = sum(row[1] for row in reports)
+            assembly_total = sum(row[2] for row in reports if row[2] is not None)
+            new_text = (str(new_total) if len(reports) == len(shops)
+                        else f"{new_total} по доступным" if reports else "—")
+            assembly_text = (str(assembly_total) if len(reports) == len(shops) and
+                             all(row[2] is not None for row in reports) else
+                             f"{assembly_total} по доступным" if any(row[2] is not None for row in reports) else "—")
+            lines = [f"Новые · {new_text}", f"На сборке · {assembly_text}", ""]
+            lines.extend(f"{name} · новые {new} / сборка {assembly if assembly is not None else '—'}"
+                         for name, new, assembly in reports)
+        elif action.startswith("stats:"):
             if reports:
                 for start in range(0, len(reports), 8):
                     page = reports[start:start + 8]
-                    photo = render_stats(page, reports, now, partial=len(reports) != len(shops))
-                    caption = f"Заказы FBS · 01.{now.month:02d}–{now:%d.%m} · МСК"
+                    amount = action == "stats:amount"
+                    photo = render_stats(page, reports, now, partial=len(reports) != len(shops), amount=amount)
+                    period = f"01.{now.month:02d}–{now:%d.%m} · МСК"
+                    caption = f"Заказы FBS · {period}"
+                    if amount:
+                        caption = f"Выкупы · {period} · предварительно по отчёту WB"
+                        if currency == "RUB":
+                            caption += f"\nОценка по курсу ЦБ РФ на {now:%d.%m} · 1 CNY = {rate} ₽"
                     self.telegram("sendPhoto", chat_id=self.owner, photo=photo, caption=caption)
             if not errors:
                 return ""
@@ -262,7 +380,7 @@ class Bot:
             code_lines = {f"{title} × {items[title]}" for title in items}
             lines.extend(f"{title} × {items[title]}" for title in sorted(items, key=sort_key))
         self.send("\n".join(lines + (["", "Ошибки и ограничения"] + errors if errors else [])),
-                  code_lines=code_lines)
+                  code_lines=code_lines, reply_markup=STATS_BUTTONS if action == STATS else None)
         return ""
 
     def ping(self):
@@ -333,11 +451,20 @@ class Bot:
         offset = 0
         while True:
             try:
-                updates = self.telegram("getUpdates", offset=offset, timeout=25, allowed_updates=["message"])
+                updates = self.telegram("getUpdates", offset=offset, timeout=25,
+                                        allowed_updates=["message", "callback_query"])
                 for update in updates:
                     offset = update["update_id"] + 1
                     try:
-                        self.handle(update["message"])
+                        if "callback_query" in update:
+                            callback = update["callback_query"]
+                            chat = callback.get("message", {}).get("chat", {})
+                            if callback.get("from", {}).get("id") == self.owner and chat.get("type") == "private":
+                                self.telegram("answerCallbackQuery", callback_query_id=callback["id"])
+                                if callback.get("data") in {"stats:quantity", "stats:amount"}:
+                                    self.send(self.report(callback["data"]))
+                        elif "message" in update:
+                            self.handle(update["message"])
                     except ApiError as error:
                         self.send(str(error))
                     except (KeyError, TypeError, ValueError, sqlite3.Error):

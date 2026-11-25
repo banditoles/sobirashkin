@@ -29,25 +29,37 @@ def number(value):
     return "—" if value is None else f"{value:,}".replace(",", " ")
 
 
-def render_stats(page, reports, now, *, partial=False):
+def render_stats(page, reports, now, *, partial=False, amount=False):
     height = 273 + len(page) * 202
     image = Image.new("RGB", (WIDTH, height), BACKGROUND)
     draw = ImageDraw.Draw(image)
     large, heading, regular, small = font(53, True), font(32, True), font(27), font(22)
-    draw.text((48, 35), "Заказы Wildberries", font=large, fill=FOREGROUND)
-    draw.text((50, 108), f"01.{now.month:02d}–{now:%d.%m} · FBS · МСК", font=regular, fill=MUTED)
-    draw.text((50, 150), "Заказы по дням · отдельная шкала для каждого магазина", font=regular, fill=MUTED)
-    left, right = 108, 1019
+    title = "Выкупы Wildberries · CNY" if amount else "Заказы Wildberries"
+    draw.text((48, 35), title, font=large, fill=FOREGROUND)
+    kind = "CNY" if amount else "FBS"
+    draw.text((50, 108), f"01.{now.month:02d}–{now:%d.%m} · {kind} · МСК", font=regular, fill=MUTED)
+    metric = "Выкупы" if amount else "Заказы"
+    draw.text((50, 150), f"{metric} по дням · отдельная шкала для каждого магазина", font=regular, fill=MUTED)
+    left, right = (150 if amount else 108), 1019
     ticks = sorted({1, now.day} | {day for day in (5, 10, 15, 20, 25) if day < now.day - 1})
 
     def day_x(day):
         return left + (day - 1) * (right - left) / max(1, now.day - 1)
 
+    def totals_line(total, sold, delivery, today):
+        if amount:
+            def yuan(value):
+                whole, cents = divmod(value, 100)
+                return f"{number(whole)},{cents:02d} ¥"
+
+            return f"Сегодня {yuan(today)}   С начала месяца {yuan(total)}"
+        return f"Всего {number(total)}   Выкуплено {number(sold)}   В доставке {number(delivery)}"
+
     for index, (name, values, sold, delivery) in enumerate(page):
         top = 208 + index * 202
         upper, bottom = top + 59, top + 154
         color = COLORS[index % len(COLORS)]
-        line = f"Всего {number(sum(values))}   Выкуплено {number(sold)}   В доставке {number(delivery)}"
+        line = totals_line(sum(values), sold, delivery, values[-1])
         name_width = min(340, 950 - draw.textlength(line, font=small))
         name = " ".join(name.split())
         while len(name) > 1 and draw.textlength(name, font=heading) > name_width:
@@ -60,7 +72,8 @@ def render_stats(page, reports, now, *, partial=False):
         ceiling = max(1, ceil(peak / step) * step)
         for value, y in ((ceiling, upper), (0, bottom)):
             draw.line((left, y, right, y), fill=GRID, width=1)
-            draw.text((left - 12, y), number(value), font=small, fill=MUTED, anchor="rm")
+            axis_value = number(value) if not amount else f"{value / 100:g}".replace(".", ",")
+            draw.text((left - 12, y), axis_value, font=small, fill=MUTED, anchor="rm")
         for day in ticks:
             x = day_x(day)
             draw.line((x, upper, x, bottom), fill=GRID, width=1)
@@ -91,7 +104,7 @@ def render_stats(page, reports, now, *, partial=False):
                 for column in (2, 3)]
     label = "Итого по доступным" if partial else "Итого"
     draw.text((50, height - 55), label, font=heading, fill=FOREGROUND)
-    summary = f"Всего {number(totals)}   Выкуплено {number(statuses[0])}   В доставке {number(statuses[1])}"
+    summary = totals_line(totals, *statuses, sum(row[1][-1] for row in reports))
     summary_width = 950 - draw.textlength(label, font=heading)
     summary_font = regular if draw.textlength(summary, font=regular) <= summary_width else small
     draw.text((1030, height - 49), summary, font=summary_font, fill=FOREGROUND, anchor="ra")
