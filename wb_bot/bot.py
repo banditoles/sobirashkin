@@ -29,11 +29,13 @@ DEFAULT_MOSCOW_URL = "https://vk.ru/"
 SALES = "https://statistics-api.wildberries.ru/api/v1/supplier/sales"
 ADD, STATS, ASSEMBLY, PING = "Добавить магазин", "Статистика", "Список сборки", "Пинг"
 MENU = {"keyboard": [[STATS, ASSEMBLY], [ADD, PING]], "resize_keyboard": True}
+USER_MENU = {"keyboard": [[STATS, ASSEMBLY], [PING]], "resize_keyboard": True}
 STATS_BUTTONS = {"inline_keyboard": [[
     {"text": "Количество", "callback_data": "stats:quantity"},
     {"text": "Сумма", "callback_data": "stats:amount"},
 ]]}
 COMMAND_STARTED = ContextVar("command_started", default=None)
+REPLY_CHAT = ContextVar("reply_chat", default=None)
 CATALOG_CACHE_SECONDS = 3600
 
 
@@ -68,7 +70,8 @@ def blocking_request(url, service, *, token=None, body=None, photo=None, upload_
     if photo is not None:
         boundary = uuid4().hex
         fields = b"".join(
-            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'
+            f'{json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list, bool)) else value}\r\n'.encode()
             for name, value in body.items()
         )
         data = (
@@ -86,17 +89,26 @@ def blocking_request(url, service, *, token=None, body=None, photo=None, upload_
                 return response.read()
             return json.load(response) if read_json else response.status
     except HTTPError as error:
+        try:
+            result = json.loads(error.read(8192))
+        except (ValueError, OSError):
+            result = None
+        finally:
+            error.close()
         if service == "Telegram":
-            try:
-                result = json.loads(error.read(8192))
-            except (ValueError, OSError):
-                result = None
-            finally:
-                error.close()
             raise telegram_error(url.rsplit("/", 1)[-1], error.code, result) from None
-        raise ApiError(f"{service} — HTTP {error.code}", status=error.code) from None
-    except (URLError, TimeoutError, OSError, ValueError):
-        raise ApiError(f"{service} — ошибка соединения или ответа") from None
+        details = []
+        if isinstance(result, dict):
+            for key in ("title", "detail", "message", "errorText", "requestId"):
+                value = result.get(key)
+                if isinstance(value, str):
+                    safe = value.replace(token, "[токен скрыт]") if token else value
+                    details.append(" ".join(safe.split())[:180])
+        suffix = " · " + " · ".join(dict.fromkeys(details)) if details else ""
+        raise ApiError(f"{service} — HTTP {error.code}{suffix}", status=error.code) from None
+    except (URLError, TimeoutError, OSError, ValueError) as error:
+        reason = error.reason if isinstance(error, URLError) else error
+        raise ApiError(f"{service} — ошибка соединения или ответа ({type(reason).__name__})") from None
 
 
 async def request(*args, **kwargs):
@@ -269,6 +281,15 @@ def sort_key(title):
     return [int(part) if part.isdigit() else part for part in re.split(r"([0-9]+)", title.casefold())]
 
 
+def processing_time():
+    started = COMMAND_STARTED.get()
+    if started is None:
+        return ""
+    elapsed = time.perf_counter() - started
+    duration = f"{elapsed * 1000:.0f} мс" if elapsed < 1 else f"{elapsed:.2f} с"
+    return f"Обработка · {duration}"
+
+
 class Bot:
     def __init__(self, token, owner, cipher, db):
         self.url = f"https://api.telegram.org/bot{token}"
@@ -285,16 +306,49 @@ class Bot:
             "CREATE TABLE IF NOT EXISTS catalog_cache ("
             "cache_key TEXT PRIMARY KEY, updated_at REAL NOT NULL, cursor TEXT NOT NULL, titles TEXT NOT NULL)"
         )
+        db.execute("CREATE TABLE IF NOT EXISTS telegram_users (id INTEGER PRIMARY KEY, username TEXT)")
+        db.execute("CREATE TABLE IF NOT EXISTS telegram_access (id INTEGER PRIMARY KEY)")
+
+    @property
+    def reply_chat(self):
+        return REPLY_CHAT.get() or self.owner
+
+    def has_access(self, user_id):
+        return user_id == self.owner or self.db.execute(
+            "SELECT 1 FROM telegram_access WHERE id = ?", (user_id,)
+        ).fetchone() is not None
+
+    async def change_access(self, command, target):
+        if re.fullmatch(r"[1-9][0-9]{0,15}", target):
+            user_id = int(target)
+        elif re.fullmatch(r"@[A-Za-z0-9_]{1,32}", target):
+            username = target[1:].lower()
+            row = self.db.execute("SELECT id FROM telegram_users WHERE username = ?", (username,)).fetchone()
+            if not row:
+                return "Попроси пользователя отправить боту /start, затем повтори команду."
+            user_id = row[0]
+            if command == "/allow":
+                chat = await self.telegram("getChat", chat_id=user_id)
+                if chat.get("username", "").lower() != username:
+                    return "Тег пользователя изменился. Укажи актуальный @username или числовой ID."
+        else:
+            return f"Укажи пользователя так: {command} @username или {command} 123456789."
+        if user_id == self.owner:
+            return "Доступ владельца задаётся через TELEGRAM_OWNER_ID."
+        with self.db:
+            if command == "/allow":
+                self.db.execute("INSERT OR IGNORE INTO telegram_access VALUES (?)", (user_id,))
+                return f"Доступ выдан · Telegram ID {user_id}"
+            self.db.execute("DELETE FROM telegram_access WHERE id = ?", (user_id,))
+            return f"Доступ отозван · Telegram ID {user_id}"
 
     async def telegram(self, method, *, photo=None, **body):
         timing_field = {"sendMessage": "text", "sendPhoto": "caption", "sendDocument": "caption"}.get(method)
-        started = COMMAND_STARTED.get()
-        if timing_field and started is not None:
-            elapsed = time.perf_counter() - started
-            duration = f"{elapsed * 1000:.0f} мс" if elapsed < 1 else f"{elapsed:.2f} с"
+        timing = processing_time()
+        if timing_field and timing:
             text = body.get(timing_field, "").rstrip()
-            body[timing_field] = f"{text}\n\nОбработка · {duration}".lstrip()
-        upload_field = "document" if method == "sendDocument" else "photo"
+            body[timing_field] = f"{text}\n\n{timing}".lstrip()
+        upload_field = {"sendDocument": "document", "sendRichMessage": "chart"}.get(method, "photo")
         result = await request(f"{self.url}/{method}", "Telegram", body=body, photo=photo,
                                upload_field=upload_field, timeout=40)
         if not result.get("ok"):
@@ -303,12 +357,13 @@ class Bot:
 
     async def send(self, text, *, code_lines=(), reply_markup=None):
         formatting = {"parse_mode": "HTML"} if code_lines else {}
+        menu = MENU if self.reply_chat == self.owner else USER_MENU
         chunk = ""
         for line in text.splitlines():
             is_code = line in code_lines
             line = line[:1700]
             if len(chunk) + len(line) + 1 > 1800:
-                await self.telegram("sendMessage", chat_id=self.owner, text=chunk, reply_markup=MENU, **formatting)
+                await self.telegram("sendMessage", chat_id=self.reply_chat, text=chunk, reply_markup=menu, **formatting)
                 chunk = ""
             if code_lines:
                 line = escape(line, quote=False)
@@ -316,8 +371,29 @@ class Bot:
                     line = f"<code>{line}</code>"
             chunk += line + "\n"
         if chunk:
-            await self.telegram("sendMessage", chat_id=self.owner, text=chunk,
-                          reply_markup=reply_markup or MENU, **formatting)
+            await self.telegram("sendMessage", chat_id=self.reply_chat, text=chunk,
+                                reply_markup=reply_markup or menu, **formatting)
+
+    async def send_chart(self, photo, caption):
+        heading = "".join(f"<p>{escape(line)}</p>" for line in caption.splitlines())
+        rich_message = {
+            "html": f'{heading}<img src="tg://photo?id=chart"/><p>{escape(processing_time())}</p>',
+            "media": [{"id": "chart", "media": {"type": "photo", "media": "attach://chart"}}],
+        }
+        try:
+            await self.telegram("sendRichMessage", chat_id=self.reply_chat, photo=photo, rich_message=rich_message)
+            return
+        except ApiError as error:
+            if error.status not in {400, 404}:
+                raise
+            print(error, flush=True)
+        try:
+            await self.telegram("sendPhoto", chat_id=self.reply_chat, photo=photo, caption=caption)
+        except ApiError as error:
+            if error.status != 400:
+                raise
+            print(error, flush=True)
+            await self.telegram("sendDocument", chat_id=self.reply_chat, photo=photo, caption=caption)
 
     async def add_shop(self, token):
         manual_id = "manual:" + sha256(token.encode()).hexdigest()
@@ -421,6 +497,8 @@ class Bot:
                 await load_shop(name, encrypted)
 
         await asyncio.gather(*(load_with_limit(name, encrypted) for name, encrypted in shops))
+        if not self.has_access(self.reply_chat):
+            return ""
         reports.sort(key=lambda row: row[0])
         errors.sort()
         code_lines = ()
@@ -447,13 +525,7 @@ class Bot:
                         caption = f"Выкупы · {period} · предварительно по отчёту WB"
                         if currency == "RUB":
                             caption += f"\nОценка по курсу ЦБ РФ на {now:%d.%m} · 1 CNY = {rate} ₽"
-                    try:
-                        await self.telegram("sendPhoto", chat_id=self.owner, photo=photo, caption=caption)
-                    except ApiError as error:
-                        if error.status != 400:
-                            raise
-                        print(error, flush=True)
-                        await self.telegram("sendDocument", chat_id=self.owner, photo=photo, caption=caption)
+                    await self.send_chart(photo, caption)
             if not errors:
                 return ""
             lines = []
@@ -510,12 +582,41 @@ class Bot:
         self.report_task = asyncio.create_task(self.run_job(action))
 
     async def handle(self, message):
-        if message["chat"]["type"] != "private" or message.get("from", {}).get("id") != self.owner:
+        sender = message.get("from", {})
+        user_id = sender.get("id")
+        if message["chat"]["type"] != "private" or not user_id:
             return
         text = message.get("text", "").strip()
+        parts = text.split(maxsplit=1)
+        command = parts[0].split("@", 1)[0] if parts else ""
+        is_owner = user_id == self.owner
+        if command == "/start":
+            username = (sender.get("username") or "").lower() or None
+            with self.db:
+                if username:
+                    self.db.execute("UPDATE telegram_users SET username = NULL WHERE username = ? AND id != ?",
+                                    (username, user_id))
+                self.db.execute("INSERT INTO telegram_users VALUES (?, ?) ON CONFLICT(id) DO UPDATE "
+                                "SET username=excluded.username", (user_id, username))
+        if not self.has_access(user_id):
+            if command == "/start":
+                await self.send(f"Доступ пока закрыт. Передай владельцу бота свой Telegram ID: {user_id}.",
+                                reply_markup={"remove_keyboard": True})
+            return
+        if not is_owner:
+            if command in {"/allow", "/revoke"} or text == ADD:
+                await self.send("Управлять доступом и магазинами может владелец.")
+                return
+            if text in {STATS, ASSEMBLY, PING}:
+                await self.run_menu_action(text)
+            elif text:
+                await self.send("Выбери действие в меню.")
+            return
+        if command in {"/allow", "/revoke"}:
+            await self.send(await self.change_access(command, parts[1] if len(parts) > 1 else ""))
+            return
         if time.monotonic() >= self.add_until:
             self.pending_shop = None
-        command = text.split("@", 1)[0]
         if command in {"/start", "/cancel"}:
             self.add_until = 0
             self.pending_shop = None
@@ -527,14 +628,7 @@ class Bot:
         elif text in {STATS, ASSEMBLY, PING}:
             self.add_until = 0
             self.pending_shop = None
-            if text == PING:
-                await self.send("Понг")
-                if self.ping_task and not self.ping_task.done():
-                    await self.send("Замер уже идёт.")
-                else:
-                    self.ping_task = asyncio.create_task(self.run_job(PING))
-            else:
-                await self.start_report(text)
+            await self.run_menu_action(text)
         elif text and self.pending_shop:
             if len(text) > 100 or "\n" in text:
                 await self.send("Введи название одной строкой, до 100 символов.")
@@ -554,6 +648,16 @@ class Bot:
         elif text:
             await self.send("Выбери действие в меню.")
 
+    async def run_menu_action(self, action):
+        if action == PING:
+            await self.send("Понг")
+            if self.ping_task and not self.ping_task.done():
+                await self.send("Замер уже идёт.")
+            else:
+                self.ping_task = asyncio.create_task(self.run_job(PING))
+        else:
+            await self.start_report(action)
+
     async def run(self):
         offset = 0
         while True:
@@ -562,12 +666,17 @@ class Bot:
                                         allowed_updates=["message", "callback_query"])
                 for update in updates:
                     offset = update["update_id"] + 1
+                    message = update.get("message") or update.get("callback_query", {}).get("message") or {}
+                    chat = message.get("chat", {})
+                    if chat.get("type") != "private":
+                        continue
+                    recipient = REPLY_CHAT.set(chat["id"])
                     timing = COMMAND_STARTED.set(time.perf_counter())
                     try:
                         if "callback_query" in update:
                             callback = update["callback_query"]
-                            chat = callback.get("message", {}).get("chat", {})
-                            if callback.get("from", {}).get("id") == self.owner and chat.get("type") == "private":
+                            user_id = callback.get("from", {}).get("id")
+                            if user_id == chat["id"] and self.has_access(user_id):
                                 try:
                                     await self.telegram("answerCallbackQuery", callback_query_id=callback["id"])
                                 except ApiError as error:
@@ -577,13 +686,15 @@ class Bot:
                                 if callback.get("data") in {"stats:quantity", "stats:amount"}:
                                     await self.start_report(callback["data"])
                         elif "message" in update:
-                            await self.handle(update["message"])
+                            if message.get("from", {}).get("id") == chat["id"]:
+                                await self.handle(message)
                     except ApiError as error:
                         await self.send(str(error))
                     except (KeyError, TypeError, ValueError, sqlite3.Error):
                         await self.send("Не удалось обработать запрос. Проверь настройки и повтори.")
                     finally:
                         COMMAND_STARTED.reset(timing)
+                        REPLY_CHAT.reset(recipient)
             except ApiError as error:
                 print(error, flush=True)
                 await asyncio.sleep(3)
