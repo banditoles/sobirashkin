@@ -34,6 +34,7 @@ STATS_BUTTONS = {"inline_keyboard": [[
     {"text": "Сумма", "callback_data": "stats:amount"},
 ]]}
 COMMAND_STARTED = ContextVar("command_started", default=None)
+CATALOG_CACHE_SECONDS = 3600
 
 
 class ApiError(Exception):
@@ -200,25 +201,44 @@ def purchase_amounts(sales, now, rate):
     return [int((value * 100 / rate).quantize(Decimal(1), rounding=ROUND_HALF_UP)) for value in month]
 
 
-async def card_titles(token, wanted):
-    cursor = {"limit": 100}
-    titles = {}
-    while wanted - titles.keys():
+async def card_titles(token, wanted, db, cache_key):
+    if not wanted:
+        return {}
+    now = time.time()
+    with db:
+        db.execute("DELETE FROM catalog_cache WHERE updated_at <= ?", (now - CATALOG_CACHE_SECONDS,))
+    cached = db.execute(
+        "SELECT updated_at, cursor, titles FROM catalog_cache WHERE cache_key = ?", (cache_key,)
+    ).fetchone()
+    if cached:
+        started, raw_cursor, raw_titles = cached
+        cursor = json.loads(raw_cursor)
+        titles = json.loads(raw_titles)
+    else:
+        started, cursor, titles = now, {"limit": 100}, {}
+    wanted = {str(card_id) for card_id in wanted}
+    while cursor is not None and wanted - titles.keys():
         body = {"settings": {"cursor": cursor, "filter": {"withPhoto": -1}}}
         page = await request(f"{CONTENT}/content/v2/get/cards/list", "WB каталог", token=token, body=body)
         titles.update({
-            card["nmID"]: card["title"] for card in page["cards"]
-            if card["nmID"] in wanted and card.get("title")
+            str(card["nmID"]): card["title"] for card in page["cards"] if card.get("title")
         })
         position = page["cursor"]
-        if position["total"] < 100:
-            break
-        next_cursor = {"limit": 100, "updatedAt": position["updatedAt"], "nmID": position["nmID"]}
+        next_cursor = None
+        if position["total"] >= 100:
+            next_cursor = {"limit": 100, "updatedAt": position["updatedAt"], "nmID": position["nmID"]}
         if next_cursor == cursor:
             raise ApiError("WB повторил страницу каталога")
         cursor = next_cursor
-        await asyncio.sleep(0.65)
-    return titles
+        with db:
+            db.execute(
+                "INSERT INTO catalog_cache VALUES (?, ?, ?, ?) ON CONFLICT(cache_key) DO UPDATE SET "
+                "updated_at=excluded.updated_at, cursor=excluded.cursor, titles=excluded.titles",
+                (cache_key, started, json.dumps(cursor), json.dumps(titles, ensure_ascii=False)),
+            )
+        if cursor is not None and wanted - titles.keys():
+            await asyncio.sleep(0.65)
+    return {card_id: titles[card_id] for card_id in wanted & titles.keys()}
 
 
 def clean_title(title):
@@ -242,6 +262,10 @@ class Bot:
         self.report_task = None
         self.ping_task = None
         db.execute("CREATE TABLE IF NOT EXISTS shops (id TEXT PRIMARY KEY, name TEXT, token BLOB)")
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS catalog_cache ("
+            "cache_key TEXT PRIMARY KEY, updated_at REAL NOT NULL, cursor TEXT NOT NULL, titles TEXT NOT NULL)"
+        )
 
     async def telegram(self, method, *, photo=None, **body):
         timing_field = {"sendMessage": "text", "sendPhoto": "caption"}.get(method)
@@ -352,14 +376,16 @@ class Bot:
                 else:
                     orders = (await request(f"{MARKET}/api/v3/orders/new", "WB заказы", token=token))["orders"]
                     try:
-                        titles = await card_titles(token, {order["nmId"] for order in orders})
+                        titles = await card_titles(
+                            token, {order["nmId"] for order in orders}, self.db, sha256(encrypted).hexdigest()
+                        )
                     except (ApiError, KeyError, TypeError, ValueError) as error:
                         titles = {}
                         detail = str(error) if isinstance(error, ApiError) else "ответ WB изменился"
                         errors.append(f"{name} · названия недоступны ({detail}), показаны артикулы")
                     for order in orders:
                         article = order.get("article") or str(order["nmId"])
-                        title = clean_title(titles.get(order["nmId"], article)) or article
+                        title = clean_title(titles.get(str(order["nmId"]), article)) or article
                         items[title] += 1
             except InvalidToken:
                 errors.append(f"{name} · не удалось расшифровать токен")
