@@ -6,6 +6,7 @@ import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
+from html import escape
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -161,16 +162,22 @@ class Bot:
             raise ApiError("Telegram отклонил запрос")
         return result["result"]
 
-    def send(self, text):
+    def send(self, text, *, code_lines=()):
+        formatting = {"parse_mode": "HTML"} if code_lines else {}
         chunk = ""
         for line in text.splitlines():
+            is_code = line in code_lines
             line = line[:1700]
             if len(chunk) + len(line) + 1 > 1800:
-                self.telegram("sendMessage", chat_id=self.owner, text=chunk, reply_markup=MENU)
+                self.telegram("sendMessage", chat_id=self.owner, text=chunk, reply_markup=MENU, **formatting)
                 chunk = ""
+            if code_lines:
+                line = escape(line, quote=False)
+                if is_code:
+                    line = f"<code>{line}</code>"
             chunk += line + "\n"
         if chunk:
-            self.telegram("sendMessage", chat_id=self.owner, text=chunk, reply_markup=MENU)
+            self.telegram("sendMessage", chat_id=self.owner, text=chunk, reply_markup=MENU, **formatting)
 
     def add_shop(self, token):
         manual_id = "manual:" + sha256(token.encode()).hexdigest()
@@ -239,6 +246,7 @@ class Bot:
                 errors.append(f"{name} · {error}")
             except (KeyError, TypeError, ValueError):
                 errors.append(f"{name} · неожиданный ответ WB")
+        code_lines = ()
         if action == STATS:
             if reports:
                 for start in range(0, len(reports), 8):
@@ -251,8 +259,11 @@ class Bot:
             lines = []
         else:
             lines = [f"Новые заказы на сборку · {sum(items.values())} по доступным магазинам"]
+            code_lines = {f"{title} × {items[title]}" for title in items}
             lines.extend(f"{title} × {items[title]}" for title in sorted(items, key=sort_key))
-        return "\n".join(lines + (["", "Ошибки и ограничения"] + errors if errors else []))
+        self.send("\n".join(lines + (["", "Ошибки и ограничения"] + errors if errors else [])),
+                  code_lines=code_lines)
+        return ""
 
     def ping(self):
         row = self.db.execute("SELECT token FROM shops ORDER BY id LIMIT 1").fetchone()
