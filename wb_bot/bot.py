@@ -1,9 +1,11 @@
+import asyncio
 import json
 import os
 import re
 import sqlite3
 import time
 from collections import Counter
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from hashlib import sha256
@@ -23,6 +25,7 @@ MSK = timezone(timedelta(hours=3))
 MARKET = "https://marketplace-api.wildberries.ru"
 CONTENT = "https://content-api.wildberries.ru"
 COMMON = "https://common-api.wildberries.ru"
+DEFAULT_MOSCOW_URL = "https://vk.ru/"
 SALES = "https://statistics-api.wildberries.ru/api/v1/supplier/sales"
 ADD, STATS, ASSEMBLY, PING = "Добавить магазин", "Статистика", "Список сборки", "Пинг"
 MENU = {"keyboard": [[STATS, ASSEMBLY], [ADD, PING]], "resize_keyboard": True}
@@ -30,6 +33,7 @@ STATS_BUTTONS = {"inline_keyboard": [[
     {"text": "Количество", "callback_data": "stats:quantity"},
     {"text": "Сумма", "callback_data": "stats:amount"},
 ]]}
+COMMAND_STARTED = ContextVar("command_started", default=None)
 
 
 class ApiError(Exception):
@@ -46,7 +50,7 @@ class NoRedirects(HTTPRedirectHandler):
 OPENER = build_opener(NoRedirects())
 
 
-def request(url, service, *, token=None, body=None, photo=None, timeout=15, read_json=True, raw=False):
+def blocking_request(url, service, *, token=None, body=None, photo=None, timeout=15, read_json=True, raw=False):
     headers = {"Authorization": token} if token else {}
     data = None
     if photo is not None:
@@ -75,7 +79,11 @@ def request(url, service, *, token=None, body=None, photo=None, timeout=15, read
         raise ApiError(f"{service} — ошибка соединения или ответа") from None
 
 
-def month_counts(token, now):
+async def request(*args, **kwargs):
+    return await asyncio.to_thread(blocking_request, *args, **kwargs)
+
+
+async def month_counts(token, now):
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     final = int(now.timestamp())
     counts = Counter()
@@ -86,7 +94,7 @@ def month_counts(token, now):
         cursors = {cursor}
         while True:
             query = urlencode(dict(limit=1000, next=cursor, dateFrom=date_from, dateTo=date_to))
-            page = request(f"{MARKET}/api/v3/orders?{query}", "WB заказы", token=token)
+            page = await request(f"{MARKET}/api/v3/orders?{query}", "WB заказы", token=token)
             orders = page["orders"]
             if not orders:
                 break
@@ -99,25 +107,26 @@ def month_counts(token, now):
             if cursor in cursors:
                 raise ApiError("WB повторил страницу заказов")
             cursors.add(cursor)
-            time.sleep(0.25)
+            await asyncio.sleep(0.25)
     return counts, sorted(seen)
 
 
-def order_statuses(token, order_ids):
+async def order_statuses(token, order_ids):
     for start in range(0, len(order_ids), 1000):
         if start:
-            time.sleep(0.25)
+            await asyncio.sleep(0.25)
         batch = order_ids[start:start + 1000]
-        result = request(f"{MARKET}/api/v3/orders/status", "WB статусы", token=token, body={"orders": batch})
+        result = await request(f"{MARKET}/api/v3/orders/status", "WB статусы", token=token, body={"orders": batch})
         statuses = {order["id"]: order for order in result["orders"]}
         if statuses.keys() != set(batch):
             raise ApiError("WB вернул неполный список статусов")
-        yield from statuses.values()
+        for order in statuses.values():
+            yield order
 
 
-def status_counts(token, order_ids):
+async def status_counts(token, order_ids):
     sold = delivery = 0
-    for order in order_statuses(token, order_ids):
+    async for order in order_statuses(token, order_ids):
         wb = order["wbStatus"]
         supplier = order["supplierStatus"]
         sold += wb == "sold"
@@ -129,33 +138,35 @@ def status_counts(token, order_ids):
     return sold, delivery
 
 
-def assembly_count(token, new_ids):
+async def assembly_count(token, new_ids):
     cursor = 0
     cursors = {cursor}
     assembly_ids = set()
     while True:
-        page = request(f"{MARKET}/api/v3/supplies?limit=1000&next={cursor}", "WB поставки", token=token)
+        page = await request(f"{MARKET}/api/v3/supplies?limit=1000&next={cursor}", "WB поставки", token=token)
         if not page["supplies"]:
             break
         for supply in page["supplies"]:
             if not supply["done"]:
                 supply_id = quote(supply["id"], safe="")
-                time.sleep(0.22)
-                result = request(f"{MARKET}/api/marketplace/v3/supplies/{supply_id}/order-ids",
+                await asyncio.sleep(0.22)
+                result = await request(f"{MARKET}/api/marketplace/v3/supplies/{supply_id}/order-ids",
                                  "WB заказы поставки", token=token)
                 assembly_ids.update(result["orderIds"])
         cursor = page["next"]
         if cursor in cursors:
             raise ApiError("WB повторил страницу поставок")
         cursors.add(cursor)
-        time.sleep(0.22)
-    return sum(order["supplierStatus"] == "confirm"
-               for order in order_statuses(token, sorted(assembly_ids - new_ids)))
+        await asyncio.sleep(0.22)
+    count = 0
+    async for order in order_statuses(token, sorted(assembly_ids - new_ids)):
+        count += order["supplierStatus"] == "confirm"
+    return count
 
 
-def cny_rate(today):
+async def cny_rate(today):
     query = urlencode({"date_req": today.strftime("%d/%m/%Y")})
-    xml = request(f"https://www.cbr.ru/scripts/XML_daily.asp?{query}", "ЦБ РФ", raw=True)
+    xml = await request(f"https://www.cbr.ru/scripts/XML_daily.asp?{query}", "ЦБ РФ", raw=True)
     try:
         node = ElementTree.fromstring(xml).find("./Valute[CharCode='CNY']")
         if node is not None:
@@ -189,12 +200,12 @@ def purchase_amounts(sales, now, rate):
     return [int((value * 100 / rate).quantize(Decimal(1), rounding=ROUND_HALF_UP)) for value in month]
 
 
-def card_titles(token, wanted):
+async def card_titles(token, wanted):
     cursor = {"limit": 100}
     titles = {}
     while wanted - titles.keys():
         body = {"settings": {"cursor": cursor, "filter": {"withPhoto": -1}}}
-        page = request(f"{CONTENT}/content/v2/get/cards/list", "WB каталог", token=token, body=body)
+        page = await request(f"{CONTENT}/content/v2/get/cards/list", "WB каталог", token=token, body=body)
         titles.update({
             card["nmID"]: card["title"] for card in page["cards"]
             if card["nmID"] in wanted and card.get("title")
@@ -206,7 +217,7 @@ def card_titles(token, wanted):
         if next_cursor == cursor:
             raise ApiError("WB повторил страницу каталога")
         cursor = next_cursor
-        time.sleep(0.65)
+        await asyncio.sleep(0.65)
     return titles
 
 
@@ -228,29 +239,31 @@ class Bot:
         self.add_until = 0
         self.pending_shop = None
         self.sales_cache = {}
-        self.command_started = None
+        self.report_task = None
+        self.ping_task = None
         db.execute("CREATE TABLE IF NOT EXISTS shops (id TEXT PRIMARY KEY, name TEXT, token BLOB)")
 
-    def telegram(self, method, *, photo=None, **body):
+    async def telegram(self, method, *, photo=None, **body):
         timing_field = {"sendMessage": "text", "sendPhoto": "caption"}.get(method)
-        if timing_field and self.command_started is not None:
-            elapsed = time.perf_counter() - self.command_started
+        started = COMMAND_STARTED.get()
+        if timing_field and started is not None:
+            elapsed = time.perf_counter() - started
             duration = f"{elapsed * 1000:.0f} мс" if elapsed < 1 else f"{elapsed:.2f} с"
             text = body.get(timing_field, "").rstrip()
             body[timing_field] = f"{text}\n\nОбработка · {duration}".lstrip()
-        result = request(f"{self.url}/{method}", "Telegram", body=body, photo=photo, timeout=40)
+        result = await request(f"{self.url}/{method}", "Telegram", body=body, photo=photo, timeout=40)
         if not result.get("ok"):
             raise ApiError("Telegram отклонил запрос")
         return result["result"]
 
-    def send(self, text, *, code_lines=(), reply_markup=None):
+    async def send(self, text, *, code_lines=(), reply_markup=None):
         formatting = {"parse_mode": "HTML"} if code_lines else {}
         chunk = ""
         for line in text.splitlines():
             is_code = line in code_lines
             line = line[:1700]
             if len(chunk) + len(line) + 1 > 1800:
-                self.telegram("sendMessage", chat_id=self.owner, text=chunk, reply_markup=MENU, **formatting)
+                await self.telegram("sendMessage", chat_id=self.owner, text=chunk, reply_markup=MENU, **formatting)
                 chunk = ""
             if code_lines:
                 line = escape(line, quote=False)
@@ -258,17 +271,17 @@ class Bot:
                     line = f"<code>{line}</code>"
             chunk += line + "\n"
         if chunk:
-            self.telegram("sendMessage", chat_id=self.owner, text=chunk,
+            await self.telegram("sendMessage", chat_id=self.owner, text=chunk,
                           reply_markup=reply_markup or MENU, **formatting)
 
-    def add_shop(self, token):
+    async def add_shop(self, token):
         manual_id = "manual:" + sha256(token.encode()).hexdigest()
         shop_id = manual_id
         try:
-            seller = request(f"{COMMON}/api/v1/seller-info", "WB продавец", token=token)
+            seller = await request(f"{COMMON}/api/v1/seller-info", "WB продавец", token=token)
             shop_id = str(seller["sid"])
             name = seller.get("tradeMark") or seller["name"]
-            request(f"{MARKET}/api/v3/orders/new", "WB Маркетплейс", token=token)
+            await request(f"{MARKET}/api/v3/orders/new", "WB Маркетплейс", token=token)
         except ApiError as error:
             if error.status != 429:
                 raise
@@ -290,7 +303,7 @@ class Bot:
             if shop_id != manual_id:
                 self.db.execute("DELETE FROM shops WHERE id = ?", (manual_id,))
 
-    def report(self, action):
+    async def report(self, action):
         shops = self.db.execute("SELECT name, token FROM shops ORDER BY name").fetchall()
         if not shops:
             return "Сначала нажми «Добавить магазин»."
@@ -301,24 +314,24 @@ class Bot:
         currency = os.environ.get("WB_SALES_CURRENCY", "RUB").strip().upper()
         if action == "stats:amount" and currency not in {"RUB", "CNY"}:
             raise ApiError("WB_SALES_CURRENCY должен быть RUB или CNY.")
-        rate = (cny_rate(now) if currency == "RUB" else Decimal(1)) if action == "stats:amount" else None
-        for name, encrypted in shops:
+        rate = (await cny_rate(now) if currency == "RUB" else Decimal(1)) if action == "stats:amount" else None
+        async def load_shop(name, encrypted):
             try:
                 token = self.cipher.decrypt(encrypted).decode()
                 if action == STATS:
-                    orders = request(f"{MARKET}/api/v3/orders/new", "WB новые заказы", token=token)["orders"]
+                    orders = (await request(f"{MARKET}/api/v3/orders/new", "WB новые заказы", token=token))["orders"]
                     new_ids = {order["id"] for order in orders}
                     try:
-                        assembly = assembly_count(token, new_ids)
+                        assembly = await assembly_count(token, new_ids)
                     except (ApiError, KeyError, TypeError, ValueError) as error:
                         assembly = None
                         detail = str(error) if isinstance(error, ApiError) else "ответ WB изменился"
                         errors.append(f"{name} · сборка недоступна ({detail})")
                     reports.append((name, len(new_ids), assembly))
                 elif action == "stats:quantity":
-                    days, order_ids = month_counts(token, now)
+                    days, order_ids = await month_counts(token, now)
                     try:
-                        sold, delivery = status_counts(token, order_ids)
+                        sold, delivery = await status_counts(token, order_ids)
                     except (ApiError, KeyError, TypeError, ValueError) as error:
                         sold = delivery = None
                         detail = str(error) if isinstance(error, ApiError) else "ответ WB изменился"
@@ -331,15 +344,15 @@ class Bot:
                         sales = cached[1]
                     else:
                         query = urlencode({"dateFrom": now.date().replace(day=1).isoformat()})
-                        sales = request(f"{SALES}?{query}", "WB продажи", token=token)
+                        sales = await request(f"{SALES}?{query}", "WB продажи", token=token)
                         self.sales_cache = {k: v for k, v in self.sales_cache.items()
                                             if time.monotonic() - v[0] < 120 and k[1] == now.date()}
                         self.sales_cache[key] = (time.monotonic(), sales)
                     reports.append((name, purchase_amounts(sales, now, rate), None, None))
                 else:
-                    orders = request(f"{MARKET}/api/v3/orders/new", "WB заказы", token=token)["orders"]
+                    orders = (await request(f"{MARKET}/api/v3/orders/new", "WB заказы", token=token))["orders"]
                     try:
-                        titles = card_titles(token, {order["nmId"] for order in orders})
+                        titles = await card_titles(token, {order["nmId"] for order in orders})
                     except (ApiError, KeyError, TypeError, ValueError) as error:
                         titles = {}
                         detail = str(error) if isinstance(error, ApiError) else "ответ WB изменился"
@@ -354,6 +367,15 @@ class Bot:
                 errors.append(f"{name} · {error}")
             except (KeyError, TypeError, ValueError, ArithmeticError):
                 errors.append(f"{name} · неожиданный ответ WB")
+        limit = asyncio.Semaphore(5)
+
+        async def load_with_limit(name, encrypted):
+            async with limit:
+                await load_shop(name, encrypted)
+
+        await asyncio.gather(*(load_with_limit(name, encrypted) for name, encrypted in shops))
+        reports.sort(key=lambda row: row[0])
+        errors.sort()
         code_lines = ()
         if action == STATS:
             new_total = sum(row[1] for row in reports)
@@ -371,14 +393,14 @@ class Bot:
                 for start in range(0, len(reports), 8):
                     page = reports[start:start + 8]
                     amount = action == "stats:amount"
-                    photo = render_stats(page, reports, now, partial=len(reports) != len(shops), amount=amount)
+                    photo = await asyncio.to_thread(render_stats, page, reports, now, partial=len(reports) != len(shops), amount=amount)
                     period = f"01.{now.month:02d}–{now:%d.%m} · МСК"
                     caption = f"Заказы FBS · {period}"
                     if amount:
                         caption = f"Выкупы · {period} · предварительно по отчёту WB"
                         if currency == "RUB":
                             caption += f"\nОценка по курсу ЦБ РФ на {now:%d.%m} · 1 CNY = {rate} ₽"
-                    self.telegram("sendPhoto", chat_id=self.owner, photo=photo, caption=caption)
+                    await self.telegram("sendPhoto", chat_id=self.owner, photo=photo, caption=caption)
             if not errors:
                 return ""
             lines = []
@@ -386,11 +408,11 @@ class Bot:
             lines = [f"Новые заказы на сборку · {sum(items.values())} по доступным магазинам"]
             code_lines = {f"{title} × {items[title]}" for title in items}
             lines.extend(f"{title} × {items[title]}" for title in sorted(items, key=sort_key))
-        self.send("\n".join(lines + (["", "Ошибки и ограничения"] + errors if errors else [])),
+        await self.send("\n".join(lines + (["", "Ошибки и ограничения"] + errors if errors else [])),
                   code_lines=code_lines, reply_markup=STATS_BUTTONS if action == STATS else None)
         return ""
 
-    def ping(self):
+    async def ping(self):
         row = self.db.execute("SELECT token FROM shops ORDER BY id LIMIT 1").fetchone()
         wb_token = None
         if row:
@@ -398,25 +420,43 @@ class Bot:
                 wb_token = self.cipher.decrypt(row[0]).decode()
             except InvalidToken:
                 pass
-        urls = [
-            ("WB", f"{MARKET}/ping", wb_token),
-            ("Москва", os.environ.get("MOSCOW_PING_URL"), None),
-        ]
-        lines = []
-        for name, url, token in urls:
-            if not url:
-                lines.append("Москва · задай MOSCOW_PING_URL с адресом московского сервера")
-                continue
+        moscow_url = os.environ.get("MOSCOW_PING_URL") or DEFAULT_MOSCOW_URL
+        moscow_name = "Москва (vk.ru)" if moscow_url == DEFAULT_MOSCOW_URL else "Москва"
+
+        async def measure(name, url, token=None):
             started = time.perf_counter()
             try:
-                status = f"HTTP {request(url, name, token=token, read_json=False, timeout=5)}"
+                code = await request(url, name, token=token, read_json=False, timeout=5)
+                status = f"HTTP {code}"
             except ApiError as error:
                 status = str(error).removeprefix(f"{name} — ")
             elapsed = (time.perf_counter() - started) * 1000
-            lines.append(f"{name} · {elapsed:.0f} мс · {status}")
+            return f"{name} · {elapsed:.0f} мс · {status}"
+
+        lines = await asyncio.gather(
+            measure("WB", f"{MARKET}/ping", wb_token),
+            measure(moscow_name, moscow_url),
+        )
         return "\n".join(lines)
 
-    def handle(self, message):
+    async def run_job(self, action):
+        try:
+            result = await self.ping() if action == PING else await self.report(action)
+            await self.send(result)
+        except (ApiError, KeyError, TypeError, ValueError, sqlite3.Error, RuntimeError) as error:
+            try:
+                await self.send(str(error) if isinstance(error, ApiError)
+                                else "Не удалось обработать запрос. Проверь настройки и повтори.")
+            except ApiError as send_error:
+                print(send_error, flush=True)
+
+    async def start_report(self, action):
+        if self.report_task and not self.report_task.done():
+            await self.send("Предыдущий отчёт ещё формируется.")
+            return
+        self.report_task = asyncio.create_task(self.run_job(action))
+
+    async def handle(self, message):
         if message["chat"]["type"] != "private" or message.get("from", {}).get("id") != self.owner:
             return
         text = message.get("text", "").strip()
@@ -426,66 +466,69 @@ class Bot:
         if command in {"/start", "/cancel"}:
             self.add_until = 0
             self.pending_shop = None
-            self.send("Выбери действие в меню.")
+            await self.send("Выбери действие в меню.")
         elif text == ADD:
             self.pending_shop = None
             self.add_until = time.monotonic() + 300
-            self.send("Пришли токен WB в течение 5 минут. Бот удалит сообщение перед проверкой. /cancel — отмена.")
+            await self.send("Пришли токен WB в течение 5 минут. Бот удалит сообщение перед проверкой. /cancel — отмена.")
         elif text in {STATS, ASSEMBLY, PING}:
             self.add_until = 0
             self.pending_shop = None
             if text == PING:
-                self.send("Понг")
-                self.send(self.ping())
+                await self.send("Понг")
+                if self.ping_task and not self.ping_task.done():
+                    await self.send("Замер уже идёт.")
+                else:
+                    self.ping_task = asyncio.create_task(self.run_job(PING))
             else:
-                self.send(self.report(text))
+                await self.start_report(text)
         elif text and self.pending_shop:
             if len(text) > 100 or "\n" in text:
-                self.send("Введи название одной строкой, до 100 символов.")
+                await self.send("Введи название одной строкой, до 100 символов.")
                 return
             shop_id, manual_id, encrypted = self.pending_shop
             self.save_shop(shop_id, manual_id, text, encrypted)
             self.pending_shop = None
             self.add_until = 0
-            self.send(f"Магазин сохранён · {text}. Доступ проверится при запросе заказов.")
+            await self.send(f"Магазин сохранён · {text}. Доступ проверится при запросе заказов.")
         elif text and time.monotonic() < self.add_until:
             try:
-                self.telegram("deleteMessage", chat_id=self.owner, message_id=message["message_id"])
+                await self.telegram("deleteMessage", chat_id=self.owner, message_id=message["message_id"])
             except ApiError:
-                self.send("Telegram не удалил сообщение. Удали его вручную и повтори ввод.")
+                await self.send("Telegram не удалил сообщение. Удали его вручную и повтори ввод.")
                 return
-            self.send(self.add_shop(text))
+            await self.send(await self.add_shop(text))
         elif text:
-            self.send("Выбери действие в меню.")
+            await self.send("Выбери действие в меню.")
 
-    def run(self):
+    async def run(self):
         offset = 0
         while True:
             try:
-                updates = self.telegram("getUpdates", offset=offset, timeout=25,
+                updates = await self.telegram("getUpdates", offset=offset, timeout=25,
                                         allowed_updates=["message", "callback_query"])
                 for update in updates:
                     offset = update["update_id"] + 1
-                    self.command_started = time.perf_counter()
+                    timing = COMMAND_STARTED.set(time.perf_counter())
                     try:
                         if "callback_query" in update:
                             callback = update["callback_query"]
                             chat = callback.get("message", {}).get("chat", {})
                             if callback.get("from", {}).get("id") == self.owner and chat.get("type") == "private":
-                                self.telegram("answerCallbackQuery", callback_query_id=callback["id"])
+                                await self.telegram("answerCallbackQuery", callback_query_id=callback["id"])
                                 if callback.get("data") in {"stats:quantity", "stats:amount"}:
-                                    self.send(self.report(callback["data"]))
+                                    await self.start_report(callback["data"])
                         elif "message" in update:
-                            self.handle(update["message"])
+                            await self.handle(update["message"])
                     except ApiError as error:
-                        self.send(str(error))
+                        await self.send(str(error))
                     except (KeyError, TypeError, ValueError, sqlite3.Error):
-                        self.send("Не удалось обработать запрос. Проверь настройки и повтори.")
+                        await self.send("Не удалось обработать запрос. Проверь настройки и повтори.")
                     finally:
-                        self.command_started = None
+                        COMMAND_STARTED.reset(timing)
             except ApiError as error:
                 print(error, flush=True)
-                time.sleep(3)
+                await asyncio.sleep(3)
 
 
 def main():
@@ -499,7 +542,7 @@ def main():
         raise SystemExit("Проверь формат TELEGRAM_BOT_TOKEN и TELEGRAM_OWNER_ID.")
     db_path = Path(__file__).with_name("wb_bot.sqlite3")
     with sqlite3.connect(db_path) as db:
-        Bot(token, owner, cipher, db).run()
+        asyncio.run(Bot(token, owner, cipher, db).run())
 
 
 if __name__ == "__main__":
