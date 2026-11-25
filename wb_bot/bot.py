@@ -51,7 +51,18 @@ class NoRedirects(HTTPRedirectHandler):
 OPENER = build_opener(NoRedirects())
 
 
-def blocking_request(url, service, *, token=None, body=None, photo=None, timeout=15, read_json=True, raw=False):
+def telegram_error(method, status, result):
+    description = result.get("description", "") if isinstance(result, dict) else ""
+    if not isinstance(description, str):
+        description = ""
+    description = re.sub(r"\b\d{5,}:[\w-]{10,}\b", "[токен скрыт]", description)
+    description = " ".join(description.split())[:240]
+    detail = f" · {description}" if description else ""
+    return ApiError(f"Telegram ({method}) — HTTP {status}{detail}", status=status)
+
+
+def blocking_request(url, service, *, token=None, body=None, photo=None, upload_field="photo",
+                     timeout=15, read_json=True, raw=False):
     headers = {"Authorization": token} if token else {}
     data = None
     if photo is not None:
@@ -61,7 +72,7 @@ def blocking_request(url, service, *, token=None, body=None, photo=None, timeout
             for name, value in body.items()
         )
         data = (
-            fields + f'--{boundary}\r\nContent-Disposition: form-data; name="photo"; '
+            fields + f'--{boundary}\r\nContent-Disposition: form-data; name="{upload_field}"; '
             'filename="orders.png"\r\nContent-Type: image/png\r\n\r\n'.encode()
             + photo + f'\r\n--{boundary}--\r\n'.encode()
         )
@@ -75,6 +86,14 @@ def blocking_request(url, service, *, token=None, body=None, photo=None, timeout
                 return response.read()
             return json.load(response) if read_json else response.status
     except HTTPError as error:
+        if service == "Telegram":
+            try:
+                result = json.loads(error.read(8192))
+            except (ValueError, OSError):
+                result = None
+            finally:
+                error.close()
+            raise telegram_error(url.rsplit("/", 1)[-1], error.code, result) from None
         raise ApiError(f"{service} — HTTP {error.code}", status=error.code) from None
     except (URLError, TimeoutError, OSError, ValueError):
         raise ApiError(f"{service} — ошибка соединения или ответа") from None
@@ -268,16 +287,18 @@ class Bot:
         )
 
     async def telegram(self, method, *, photo=None, **body):
-        timing_field = {"sendMessage": "text", "sendPhoto": "caption"}.get(method)
+        timing_field = {"sendMessage": "text", "sendPhoto": "caption", "sendDocument": "caption"}.get(method)
         started = COMMAND_STARTED.get()
         if timing_field and started is not None:
             elapsed = time.perf_counter() - started
             duration = f"{elapsed * 1000:.0f} мс" if elapsed < 1 else f"{elapsed:.2f} с"
             text = body.get(timing_field, "").rstrip()
             body[timing_field] = f"{text}\n\nОбработка · {duration}".lstrip()
-        result = await request(f"{self.url}/{method}", "Telegram", body=body, photo=photo, timeout=40)
+        upload_field = "document" if method == "sendDocument" else "photo"
+        result = await request(f"{self.url}/{method}", "Telegram", body=body, photo=photo,
+                               upload_field=upload_field, timeout=40)
         if not result.get("ok"):
-            raise ApiError("Telegram отклонил запрос")
+            raise telegram_error(method, result.get("error_code", 200), result)
         return result["result"]
 
     async def send(self, text, *, code_lines=(), reply_markup=None):
@@ -426,7 +447,13 @@ class Bot:
                         caption = f"Выкупы · {period} · предварительно по отчёту WB"
                         if currency == "RUB":
                             caption += f"\nОценка по курсу ЦБ РФ на {now:%d.%m} · 1 CNY = {rate} ₽"
-                    await self.telegram("sendPhoto", chat_id=self.owner, photo=photo, caption=caption)
+                    try:
+                        await self.telegram("sendPhoto", chat_id=self.owner, photo=photo, caption=caption)
+                    except ApiError as error:
+                        if error.status != 400:
+                            raise
+                        print(error, flush=True)
+                        await self.telegram("sendDocument", chat_id=self.owner, photo=photo, caption=caption)
             if not errors:
                 return ""
             lines = []
@@ -541,7 +568,12 @@ class Bot:
                             callback = update["callback_query"]
                             chat = callback.get("message", {}).get("chat", {})
                             if callback.get("from", {}).get("id") == self.owner and chat.get("type") == "private":
-                                await self.telegram("answerCallbackQuery", callback_query_id=callback["id"])
+                                try:
+                                    await self.telegram("answerCallbackQuery", callback_query_id=callback["id"])
+                                except ApiError as error:
+                                    if error.status != 400 or "query is too old" not in str(error).lower():
+                                        raise
+                                    print(error, flush=True)
                                 if callback.get("data") in {"stats:quantity", "stats:amount"}:
                                     await self.start_report(callback["data"])
                         elif "message" in update:
