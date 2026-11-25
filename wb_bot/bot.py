@@ -228,9 +228,16 @@ class Bot:
         self.add_until = 0
         self.pending_shop = None
         self.sales_cache = {}
+        self.command_started = None
         db.execute("CREATE TABLE IF NOT EXISTS shops (id TEXT PRIMARY KEY, name TEXT, token BLOB)")
 
     def telegram(self, method, *, photo=None, **body):
+        timing_field = {"sendMessage": "text", "sendPhoto": "caption"}.get(method)
+        if timing_field and self.command_started is not None:
+            elapsed = time.perf_counter() - self.command_started
+            duration = f"{elapsed * 1000:.0f} мс" if elapsed < 1 else f"{elapsed:.2f} с"
+            text = body.get(timing_field, "").rstrip()
+            body[timing_field] = f"{text}\n\nОбработка · {duration}".lstrip()
         result = request(f"{self.url}/{method}", "Telegram", body=body, photo=photo, timeout=40)
         if not result.get("ok"):
             raise ApiError("Telegram отклонил запрос")
@@ -427,7 +434,11 @@ class Bot:
         elif text in {STATS, ASSEMBLY, PING}:
             self.add_until = 0
             self.pending_shop = None
-            self.send(self.ping() if text == PING else self.report(text))
+            if text == PING:
+                self.send("Понг")
+                self.send(self.ping())
+            else:
+                self.send(self.report(text))
         elif text and self.pending_shop:
             if len(text) > 100 or "\n" in text:
                 self.send("Введи название одной строкой, до 100 символов.")
@@ -455,6 +466,7 @@ class Bot:
                                         allowed_updates=["message", "callback_query"])
                 for update in updates:
                     offset = update["update_id"] + 1
+                    self.command_started = time.perf_counter()
                     try:
                         if "callback_query" in update:
                             callback = update["callback_query"]
@@ -469,6 +481,8 @@ class Bot:
                         self.send(str(error))
                     except (KeyError, TypeError, ValueError, sqlite3.Error):
                         self.send("Не удалось обработать запрос. Проверь настройки и повтори.")
+                    finally:
+                        self.command_started = None
             except ApiError as error:
                 print(error, flush=True)
                 time.sleep(3)
