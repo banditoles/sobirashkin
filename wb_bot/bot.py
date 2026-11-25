@@ -5,12 +5,15 @@ import sqlite3
 import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+from uuid import uuid4
 
 from cryptography.fernet import Fernet, InvalidToken
+from stats_image import render_stats
 
 
 MSK = timezone(timedelta(hours=3))
@@ -22,7 +25,9 @@ MENU = {"keyboard": [[STATS, ASSEMBLY], [ADD, PING]], "resize_keyboard": True}
 
 
 class ApiError(Exception):
-    pass
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 class NoRedirects(HTTPRedirectHandler):
@@ -33,17 +38,29 @@ class NoRedirects(HTTPRedirectHandler):
 OPENER = build_opener(NoRedirects())
 
 
-def request(url, service, *, token=None, body=None, timeout=15, read_json=True):
+def request(url, service, *, token=None, body=None, photo=None, timeout=15, read_json=True):
     headers = {"Authorization": token} if token else {}
     data = None
-    if body is not None:
+    if photo is not None:
+        boundary = uuid4().hex
+        fields = b"".join(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
+            for name, value in body.items()
+        )
+        data = (
+            fields + f'--{boundary}\r\nContent-Disposition: form-data; name="photo"; '
+            'filename="orders.png"\r\nContent-Type: image/png\r\n\r\n'.encode()
+            + photo + f'\r\n--{boundary}--\r\n'.encode()
+        )
+        headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+    elif body is not None:
         data = json.dumps(body).encode()
         headers["Content-Type"] = "application/json"
     try:
         with OPENER.open(Request(url, data=data, headers=headers), timeout=timeout) as response:
             return json.load(response) if read_json else response.status
     except HTTPError as error:
-        raise ApiError(f"{service} — HTTP {error.code}") from None
+        raise ApiError(f"{service} — HTTP {error.code}", status=error.code) from None
     except (URLError, TimeoutError, OSError, ValueError):
         raise ApiError(f"{service} — ошибка соединения или ответа") from None
 
@@ -73,7 +90,29 @@ def month_counts(token, now):
                 raise ApiError("WB повторил страницу заказов")
             cursors.add(cursor)
             time.sleep(0.25)
-    return counts
+    return counts, sorted(seen)
+
+
+def status_counts(token, order_ids):
+    sold = delivery = 0
+    for start in range(0, len(order_ids), 1000):
+        if start:
+            time.sleep(0.25)
+        batch = order_ids[start:start + 1000]
+        result = request(f"{MARKET}/api/v3/orders/status", "WB статусы", token=token, body={"orders": batch})
+        statuses = {order["id"]: order for order in result["orders"]}
+        if statuses.keys() != set(batch):
+            raise ApiError("WB вернул неполный список статусов")
+        for order in statuses.values():
+            wb = order["wbStatus"]
+            supplier = order["supplierStatus"]
+            sold += wb == "sold"
+            delivery += (
+                wb in {"sorted", "postponed_delivery", "accepted_by_carrier",
+                       "sent_to_carrier", "delivering_by_carrier"}
+                or (supplier == "complete" and wb == "waiting")
+            )
+    return sold, delivery
 
 
 def card_titles(token, wanted):
@@ -113,10 +152,11 @@ class Bot:
         self.cipher = cipher
         self.db = db
         self.add_until = 0
+        self.pending_shop = None
         db.execute("CREATE TABLE IF NOT EXISTS shops (id TEXT PRIMARY KEY, name TEXT, token BLOB)")
 
-    def telegram(self, method, **body):
-        result = request(f"{self.url}/{method}", "Telegram", body=body, timeout=40)
+    def telegram(self, method, *, photo=None, **body):
+        result = request(f"{self.url}/{method}", "Telegram", body=body, photo=photo, timeout=40)
         if not result.get("ok"):
             raise ApiError("Telegram отклонил запрос")
         return result["result"]
@@ -133,16 +173,33 @@ class Bot:
             self.telegram("sendMessage", chat_id=self.owner, text=chunk, reply_markup=MENU)
 
     def add_shop(self, token):
-        seller = request(f"{COMMON}/api/v1/seller-info", "WB продавец", token=token)
-        name = seller.get("tradeMark") or seller["name"]
-        request(f"{MARKET}/api/v3/orders/new", "WB Маркетплейс", token=token)
+        manual_id = "manual:" + sha256(token.encode()).hexdigest()
+        shop_id = manual_id
+        try:
+            seller = request(f"{COMMON}/api/v1/seller-info", "WB продавец", token=token)
+            shop_id = str(seller["sid"])
+            name = seller.get("tradeMark") or seller["name"]
+            request(f"{MARKET}/api/v3/orders/new", "WB Маркетплейс", token=token)
+        except ApiError as error:
+            if error.status != 429:
+                raise
+            self.pending_shop = (shop_id, manual_id, self.cipher.encrypt(token.encode()))
+            self.add_until = time.monotonic() + 300
+            return "WB ограничил запросы (429). Введи название магазина вручную. Проверка доступа отложена. /cancel — отмена."
+
+        self.save_shop(shop_id, manual_id, name, self.cipher.encrypt(token.encode()))
+        self.add_until = 0
+        return f"Магазин сохранён · {name}"
+
+    def save_shop(self, shop_id, manual_id, name, encrypted):
         with self.db:
             self.db.execute(
                 "INSERT INTO shops VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE "
                 "SET name=excluded.name, token=excluded.token",
-                (str(seller["sid"]), name, self.cipher.encrypt(token.encode())),
+                (shop_id, name, encrypted),
             )
-        return f"Магазин сохранён · {name}"
+            if shop_id != manual_id:
+                self.db.execute("DELETE FROM shops WHERE id = ?", (manual_id,))
 
     def report(self, action):
         shops = self.db.execute("SELECT name, token FROM shops ORDER BY name").fetchall()
@@ -156,7 +213,14 @@ class Bot:
             try:
                 token = self.cipher.decrypt(encrypted).decode()
                 if action == STATS:
-                    reports.append((name, month_counts(token, now)))
+                    days, order_ids = month_counts(token, now)
+                    try:
+                        sold, delivery = status_counts(token, order_ids)
+                    except (ApiError, KeyError, TypeError, ValueError) as error:
+                        sold = delivery = None
+                        detail = str(error) if isinstance(error, ApiError) else "ответ WB изменился"
+                        errors.append(f"{name} · статусы недоступны ({detail})")
+                    reports.append((name, [days[day] for day in range(1, now.day + 1)], sold, delivery))
                 else:
                     orders = request(f"{MARKET}/api/v3/orders/new", "WB заказы", token=token)["orders"]
                     try:
@@ -176,15 +240,15 @@ class Bot:
             except (KeyError, TypeError, ValueError):
                 errors.append(f"{name} · неожиданный ответ WB")
         if action == STATS:
-            total = sum((sum(days.values()) for _, days in reports), 0)
-            lines = [f"Заказы FBS с 1 числа · {total} по доступным магазинам"]
-            for name, days in reports:
-                lines.append(f"{name} · {sum(days.values())}")
-            lines.append("")
-            for day in range(1, now.day + 1):
-                breakdown = ", ".join(f"{name} {days[day]}" for name, days in reports if days[day])
-                total_day = sum(days[day] for _, days in reports)
-                lines.append(f"{day:02d}.{now.month:02d} · {total_day}" + (f" ({breakdown})" if breakdown else ""))
+            if reports:
+                for start in range(0, len(reports), 8):
+                    page = reports[start:start + 8]
+                    photo = render_stats(page, reports, now, partial=len(reports) != len(shops))
+                    caption = f"Заказы FBS · 01.{now.month:02d}–{now:%d.%m} · МСК"
+                    self.telegram("sendPhoto", chat_id=self.owner, photo=photo, caption=caption)
+            if not errors:
+                return ""
+            lines = []
         else:
             lines = [f"Новые заказы на сборку · {sum(items.values())} по доступным магазинам"]
             lines.extend(f"{title} × {items[title]}" for title in sorted(items, key=sort_key))
@@ -220,16 +284,30 @@ class Bot:
         if message["chat"]["type"] != "private" or message.get("from", {}).get("id") != self.owner:
             return
         text = message.get("text", "").strip()
+        if time.monotonic() >= self.add_until:
+            self.pending_shop = None
         command = text.split("@", 1)[0]
         if command in {"/start", "/cancel"}:
             self.add_until = 0
+            self.pending_shop = None
             self.send("Выбери действие в меню.")
         elif text == ADD:
+            self.pending_shop = None
             self.add_until = time.monotonic() + 300
             self.send("Пришли токен WB в течение 5 минут. Бот удалит сообщение перед проверкой. /cancel — отмена.")
         elif text in {STATS, ASSEMBLY, PING}:
             self.add_until = 0
+            self.pending_shop = None
             self.send(self.ping() if text == PING else self.report(text))
+        elif text and self.pending_shop:
+            if len(text) > 100 or "\n" in text:
+                self.send("Введи название одной строкой, до 100 символов.")
+                return
+            shop_id, manual_id, encrypted = self.pending_shop
+            self.save_shop(shop_id, manual_id, text, encrypted)
+            self.pending_shop = None
+            self.add_until = 0
+            self.send(f"Магазин сохранён · {text}. Доступ проверится при запросе заказов.")
         elif text and time.monotonic() < self.add_until:
             try:
                 self.telegram("deleteMessage", chat_id=self.owner, message_id=message["message_id"])
@@ -237,7 +315,6 @@ class Bot:
                 self.send("Telegram не удалил сообщение. Удали его вручную и повтори ввод.")
                 return
             self.send(self.add_shop(text))
-            self.add_until = 0
         elif text:
             self.send("Выбери действие в меню.")
 
