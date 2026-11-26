@@ -27,8 +27,15 @@ CONTENT = "https://content-api.wildberries.ru"
 COMMON = "https://common-api.wildberries.ru"
 DEFAULT_MOSCOW_URL = "https://vk.ru/"
 SALES = "https://statistics-api.wildberries.ru/api/v1/supplier/sales"
+ACCESS_COMMANDS = {"/invite", "/allow", "/revoke"}
 ADD, STATS, ASSEMBLY, PING = "Добавить магазин", "Статистика", "Список сборки", "Пинг"
-MENU = {"keyboard": [[STATS, ASSEMBLY], [ADD, PING]], "resize_keyboard": True}
+MANAGE_USERS = "Управление пользователями"
+INVITE_USER = "Пригласить пользователя"
+REMOVE_USER = "Удалить пользователя"
+BACK = "Назад"
+USER_ACTIONS = {INVITE_USER: "/invite", REMOVE_USER: "/revoke"}
+MENU = {"keyboard": [[STATS, ASSEMBLY], [ADD, PING], [MANAGE_USERS]], "resize_keyboard": True}
+ACCESS_MENU = {"keyboard": [[INVITE_USER, REMOVE_USER], [BACK]], "resize_keyboard": True}
 USER_MENU = {"keyboard": [[STATS, ASSEMBLY], [PING]], "resize_keyboard": True}
 STATS_BUTTONS = {"inline_keyboard": [[
     {"text": "Количество", "callback_data": "stats:quantity"},
@@ -298,6 +305,7 @@ class Bot:
         self.db = db
         self.add_until = 0
         self.pending_shop = None
+        self.access_action = None
         self.sales_cache = {}
         self.report_task = None
         self.ping_task = None
@@ -308,6 +316,7 @@ class Bot:
         )
         db.execute("CREATE TABLE IF NOT EXISTS telegram_users (id INTEGER PRIMARY KEY, username TEXT)")
         db.execute("CREATE TABLE IF NOT EXISTS telegram_access (id INTEGER PRIMARY KEY)")
+        db.execute("CREATE TABLE IF NOT EXISTS telegram_invites (id INTEGER PRIMARY KEY)")
 
     @property
     def reply_chat(self):
@@ -318,6 +327,22 @@ class Bot:
             "SELECT 1 FROM telegram_access WHERE id = ?", (user_id,)
         ).fetchone() is not None
 
+    async def show_access_menu(self):
+        rows = self.db.execute(
+            "SELECT member.id, telegram_users.username, member.status FROM ("
+            "SELECT id, 'доступ открыт' AS status FROM telegram_access "
+            "UNION ALL SELECT id, 'ожидает /start' FROM telegram_invites"
+            ") AS member LEFT JOIN telegram_users ON telegram_users.id = member.id "
+            "ORDER BY member.id"
+        )
+        lines = ["Управление пользователями"]
+        for user_id, username, status in rows:
+            tag = f" · @{username}" if username else ""
+            lines.append(f"{user_id}{tag} · {status}")
+        if len(lines) == 1:
+            lines.append("Список пока пуст.")
+        await self.send("\n".join(lines), reply_markup=ACCESS_MENU)
+
     async def change_access(self, command, target):
         if re.fullmatch(r"[1-9][0-9]{0,15}", target):
             user_id = int(target)
@@ -327,20 +352,22 @@ class Bot:
             if not row:
                 return "Попроси пользователя отправить боту /start, затем повтори команду."
             user_id = row[0]
-            if command == "/allow":
-                chat = await self.telegram("getChat", chat_id=user_id)
-                if chat.get("username", "").lower() != username:
-                    return "Тег пользователя изменился. Укажи актуальный @username или числовой ID."
+            chat = await self.telegram("getChat", chat_id=user_id)
+            if (chat.get("username") or "").lower() != username:
+                return "Тег пользователя изменился. Укажи актуальный @username или числовой ID."
         else:
             return f"Укажи пользователя так: {command} @username или {command} 123456789."
         if user_id == self.owner:
             return "Доступ владельца задаётся через TELEGRAM_OWNER_ID."
         with self.db:
-            if command == "/allow":
-                self.db.execute("INSERT OR IGNORE INTO telegram_access VALUES (?)", (user_id,))
-                return f"Доступ выдан · Telegram ID {user_id}"
+            if command != "/revoke":
+                if self.has_access(user_id):
+                    return f"Доступ уже открыт · Telegram ID {user_id}"
+                self.db.execute("INSERT OR IGNORE INTO telegram_invites VALUES (?)", (user_id,))
+                return f"Приглашение создано · Telegram ID {user_id}. Попроси пользователя отправить боту /start."
+            self.db.execute("DELETE FROM telegram_invites WHERE id = ?", (user_id,))
             self.db.execute("DELETE FROM telegram_access WHERE id = ?", (user_id,))
-            return f"Доступ отозван · Telegram ID {user_id}"
+            return f"Доступ и приглашение отозваны · Telegram ID {user_id}"
 
     async def telegram(self, method, *, photo=None, **body):
         timing_field = {"sendMessage": "text", "sendPhoto": "caption", "sendDocument": "caption"}.get(method)
@@ -363,7 +390,8 @@ class Bot:
             is_code = line in code_lines
             line = line[:1700]
             if len(chunk) + len(line) + 1 > 1800:
-                await self.telegram("sendMessage", chat_id=self.reply_chat, text=chunk, reply_markup=menu, **formatting)
+                await self.telegram("sendMessage", chat_id=self.reply_chat, text=chunk,
+                                    reply_markup=reply_markup or menu, **formatting)
                 chunk = ""
             if code_lines:
                 line = escape(line, quote=False)
@@ -427,7 +455,9 @@ class Bot:
     async def report(self, action):
         shops = self.db.execute("SELECT name, token FROM shops ORDER BY name").fetchall()
         if not shops:
-            return "Сначала нажми «Добавить магазин»."
+            if self.reply_chat == self.owner:
+                return "Сначала нажми «Добавить магазин»."
+            return "Владелец пока не подключил магазины."
         now = datetime.now(MSK)
         reports = []
         errors = []
@@ -525,6 +555,8 @@ class Bot:
                         caption = f"Выкупы · {period} · предварительно по отчёту WB"
                         if currency == "RUB":
                             caption += f"\nОценка по курсу ЦБ РФ на {now:%d.%m} · 1 CNY = {rate} ₽"
+                    if not self.has_access(self.reply_chat):
+                        return ""
                     await self.send_chart(photo, caption)
             if not errors:
                 return ""
@@ -567,8 +599,11 @@ class Bot:
     async def run_job(self, action):
         try:
             result = await self.ping() if action == PING else await self.report(action)
-            await self.send(result)
+            if self.has_access(self.reply_chat):
+                await self.send(result)
         except (ApiError, KeyError, TypeError, ValueError, sqlite3.Error, RuntimeError) as error:
+            if not self.has_access(self.reply_chat):
+                return
             try:
                 await self.send(str(error) if isinstance(error, ApiError)
                                 else "Не удалось обработать запрос. Проверь настройки и повтори.")
@@ -598,13 +633,19 @@ class Bot:
                                     (username, user_id))
                 self.db.execute("INSERT INTO telegram_users VALUES (?, ?) ON CONFLICT(id) DO UPDATE "
                                 "SET username=excluded.username", (user_id, username))
+                accepted = self.db.execute("DELETE FROM telegram_invites WHERE id = ?", (user_id,)).rowcount
+                if accepted:
+                    self.db.execute("INSERT OR IGNORE INTO telegram_access VALUES (?)", (user_id,))
+            if accepted:
+                await self.send("Приглашение принято. Теперь доступны общие магазины.")
+                return
         if not self.has_access(user_id):
             if command == "/start":
-                await self.send(f"Доступ пока закрыт. Передай владельцу бота свой Telegram ID: {user_id}.",
+                await self.send(f"Доступ по приглашению. Передай владельцу бота свой Telegram ID: {user_id}.",
                                 reply_markup={"remove_keyboard": True})
             return
         if not is_owner:
-            if command in {"/allow", "/revoke"} or text == ADD:
+            if command in ACCESS_COMMANDS or text in {ADD, MANAGE_USERS, *USER_ACTIONS}:
                 await self.send("Управлять доступом и магазинами может владелец.")
                 return
             if text in {STATS, ASSEMBLY, PING}:
@@ -612,12 +653,27 @@ class Bot:
             elif text:
                 await self.send("Выбери действие в меню.")
             return
-        if command in {"/allow", "/revoke"}:
+        if command in ACCESS_COMMANDS:
             await self.send(await self.change_access(command, parts[1] if len(parts) > 1 else ""))
+            return
+        if text == MANAGE_USERS or text in USER_ACTIONS:
+            self.add_until = 0
+            self.pending_shop = None
+            self.access_action = USER_ACTIONS.get(text)
+            if self.access_action:
+                await self.send("Пришли числовой Telegram ID или @username. «Назад» — выход.",
+                                reply_markup=ACCESS_MENU)
+            else:
+                await self.show_access_menu()
+            return
+        if command in {"/start", "/cancel"} or text in {BACK, ADD, STATS, ASSEMBLY, PING}:
+            self.access_action = None
+        if self.access_action and text:
+            await self.send(await self.change_access(self.access_action, text), reply_markup=ACCESS_MENU)
             return
         if time.monotonic() >= self.add_until:
             self.pending_shop = None
-        if command in {"/start", "/cancel"}:
+        if command in {"/start", "/cancel"} or text == BACK:
             self.add_until = 0
             self.pending_shop = None
             await self.send("Выбери действие в меню.")
