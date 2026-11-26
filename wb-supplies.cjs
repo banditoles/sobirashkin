@@ -1,4 +1,5 @@
 const moscowDay = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', dateStyle: 'medium' });
+const supplyDay = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', year: 'numeric' });
 const marketplace = 'https://marketplace-api.wildberries.ru';
 
 function supplyName(day, order) {
@@ -12,7 +13,8 @@ function planSupplies(shops, keys, now = new Date()) {
   const groups = new Map();
   const day = moscowDay.format(now).replace(/\s*г\.$/, '');
   for (const shop of shops) {
-    for (const order of shop.orders || []) {
+    for (const rawOrder of shop.orders || []) {
+      const order = { ...rawOrder, isB2b: rawOrder.options?.isB2B ?? rawOrder.isB2b };
       const key = shop.id + '/' + order.id;
       if (!selected.delete(key)) continue;
       const parts = [order.warehouseId, order.cargoType, order.crossBorderType, order.isB2b];
@@ -20,14 +22,13 @@ function planSupplies(shops, keys, now = new Date()) {
       if (!groups.has(groupKey)) groups.set(groupKey, {
         shopId: shop.id, shop: shop.name, warehouseId: order.warehouseId, cargoType: order.cargoType,
         crossBorderType: order.crossBorderType, isB2b: order.isB2b,
-        name: supplyName(day, order), orderIds: [], incomplete: parts.some(value => value == null), stale: Boolean(shop.error),
+        name: 'Поставка от ' + supplyDay.format(now), orderIds: [], incomplete: parts.some(value => value == null), stale: Boolean(shop.error),
       });
       groups.get(groupKey).orderIds.push(order.id);
     }
   }
   for (const group of groups.values()) {
-    const peers = [...groups.values()].filter(candidate => candidate.shopId === group.shopId && candidate.name === group.name);
-    if (peers.length > 1) group.displayName = group.name + ' · склад ' + (group.warehouseId ?? '—');
+    group.displayName = supplyName(day, group) + ' · склад ' + (group.warehouseId ?? '—') + ' · Собирашкин';
   }
   return { groups: [...groups.values()], missing: [...selected] };
 }
@@ -37,21 +38,24 @@ function listSuppliesCall(next = 0) {
   return { method: 'GET', url: marketplace + '/api/v3/supplies?limit=1000&next=' + next, expected: 200 };
 }
 
+function supplyOrderIdsCall(supplyId) {
+  if (!/^WB-GI-\d+$/.test(supplyId)) throw new Error('Некорректный ID поставки WB.');
+  return { method: 'GET', url: marketplace + '/api/marketplace/v3/supplies/' + supplyId + '/order-ids', expected: 200 };
+}
+
 function writeCalls(group, supplies) {
   if (group.stale || group.incomplete || !group.orderIds.length) throw new Error('Supply group must be current and complete');
-  // The list response lacks the originating warehouse. Supply candidates must be
-  // enriched from confirmed origin data before they reach this matcher.
-  const matching = supplies.filter(supply => (supply.name === group.name || supply.name === group.displayName) &&
-    supply.done === false && supply.originWarehouseId === group.warehouseId && supply.cargoType === group.cargoType &&
-    supply.crossBorderType === group.crossBorderType && supply.isB2b === group.isB2b);
-  if (matching.length > 1) throw new Error('Multiple eligible supplies require reconciliation');
+  const matching = supplies.filter(supply => supply.done === false);
+  if (matching.length > 1) throw new Error('В WB несколько открытых поставок с одним именем. Проверь их вручную.');
   const supply = matching[0];
-  if (!supply && supplies.some(item => (item.name === group.name || item.name === group.displayName) &&
-    item.done === false && item.originWarehouseId == null)) throw new Error('Verify warehouse of the open supply');
+  if (supply && !supply.empty && (supply.cargoType !== group.cargoType ||
+      supply.crossBorderType !== group.crossBorderType || supply.isB2b !== group.isB2b)) {
+    throw new Error('Открытая поставка несовместима с выбранными заказами.');
+  }
   const orders = [...new Set(group.orderIds.map(Number))];
   if (orders.some(id => !Number.isSafeInteger(id) || id < 1)) throw new Error('Invalid safe integer WB order ID');
   const create = supply ? null : {
-    method: 'POST', url: marketplace + '/api/v3/supplies', expected: 201, body: { name: group.displayName || group.name },
+    method: 'POST', url: marketplace + '/api/v3/supplies', expected: 201, body: { name: group.name },
   };
   return {
     supplyId: supply?.id || null,
@@ -68,4 +72,4 @@ function writeCalls(group, supplies) {
   };
 }
 
-module.exports = { planSupplies, listSuppliesCall, writeCalls };
+module.exports = { planSupplies, listSuppliesCall, supplyOrderIdsCall, writeCalls };

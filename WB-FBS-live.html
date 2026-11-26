@@ -21,6 +21,22 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
 @media(prefers-reduced-motion:no-preference){main{animation:enter .28s ease-out}@keyframes enter{from{opacity:.55;transform:translateY(6px)}to{opacity:1;transform:none}}}
 .order-tooltip{position:fixed;z-index:10;display:grid;gap:3px;width:max-content;max-width:min(250px,calc(100vw - 16px));padding:10px 13px;border:1px solid #7852a1;border-radius:12px;background:linear-gradient(145deg,#3c2454fa,#1e152cf7);box-shadow:inset 0 1px #ffffff18,0 8px 30px #08050dc4;backdrop-filter:blur(12px);pointer-events:none}.order-tooltip strong{font-size:14px}.order-tooltip small{color:#d9bbf5}.tooltip-label{color:#e8cdfc;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}.has-tip:focus-visible{border-radius:3px}
 @media(prefers-reduced-motion:no-preference){.order-tooltip:not([hidden]){animation:tip-enter .14s ease-out}@keyframes tip-enter{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}}
+.queue-tabs{display:inline-flex;flex-wrap:wrap;gap:4px;padding:4px;background:#21172c;border:1px solid var(--line);border-radius:12px;margin-bottom:14px}
+.queue-tabs button{background:transparent;border-color:transparent;color:var(--muted)}
+.queue-tabs button[aria-pressed=true]{background:#422b57;color:var(--text);border-color:#694d83}
+.queue-count{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:5px;background:#53336f;color:#efdfff;font-size:12px}
+.queue-table td{padding:13px 12px;vertical-align:top}.queue-product{display:flex;gap:12px;align-items:flex-start}.queue-product .thumb{flex:none;width:56px;height:72px}
+.queue-meta{margin-top:4px;font-size:12px;color:var(--muted)}.queue-tag{display:inline-block;margin:4px 5px 0 0;padding:2px 6px;border-radius:5px;background:#3c2851;color:#e9d9fa;font-size:11px}
+.queue-table summary{cursor:pointer;color:var(--purple)}#assembly:not([hidden]){margin-top:18px}
+.selection-bar{position:sticky;bottom:12px;z-index:3;display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px;margin-top:12px;background:#251932;border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 32px #100818b0}
+.selection-bar[hidden]{display:none}
+#destination-dialog{max-width:min(540px,90vw);width:100%;padding:22px;background:#251932;color:var(--text);border:1px solid var(--line);border-radius:14px}
+#destination-dialog::backdrop{background:#100818b0}#destination-dialog label{display:block;margin:12px 0}#destination-dialog select{display:block;width:100%;margin-top:6px}
+#supply-detail-dialog{width:min(780px,92vw);max-height:85vh;overflow:auto;padding:22px;background:#251932;color:var(--text);border:1px solid var(--line);border-radius:14px}
+#supply-detail-dialog::backdrop{background:#100818b0}.sticker-number{font-variant-numeric:tabular-nums;white-space:nowrap}
+#imei-dialog{width:min(420px,90vw);padding:22px;background:#251932;color:var(--text);border:1px solid var(--line);border-radius:14px}
+#imei-dialog::backdrop{background:#100818b0}#imei-dialog input{display:block;width:100%;margin-top:6px}
+#product-stats-panel{margin-top:18px}
 </style>
 </head>
 <body>
@@ -33,24 +49,46 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
   <p id="message" class="message" role="status" hidden></p>
   <section id="dashboard" hidden>
     <div class="metrics" id="metrics"></div>
+    <details id="product-stats-panel" class="glass panel"><summary>Статистика по товарам</summary><div class="table-wrap"><table class="queue-table">
+      <thead><tr><th><button class="sort" type="button" data-stat-sort="model">Модель / память</button></th><th aria-sort="descending"><button class="sort" type="button" data-stat-sort="total">Всего, шт.</button></th><th><button class="sort" type="button" data-stat-sort="fresh">Новые</button></th><th><button class="sort" type="button" data-stat-sort="active">На сборке</button></th><th><button class="sort" type="button" data-stat-sort="cents">Сумма</button></th></tr></thead><tbody id="product-stats"></tbody>
+    </table></div></details>
     <h2 class="section-title">Заказы по магазинам</h2>
     <div class="cards" id="cards"></div>
   </section>
   <section id="assembly" class="glass panel" hidden>
-    <h2>Магазины</h2>
+    <div class="queue-tabs" role="group" aria-label="Статус заказов">
+      <button id="queue-new" type="button" aria-pressed="true">Новые<span id="new-count" class="queue-count">—</span></button>
+      <button id="queue-active" type="button" aria-pressed="false">На сборке<span id="active-count" class="queue-count">—</span></button>
+    </div>
     <div class="filters" id="filters"></div>
-    <div class="toolbar"><button id="select-visible" type="button">Выбрать видимые</button><button id="clear-selection" type="button">Снять выбор</button><a class="button primary" href="/supplies">Подготовить поставки</a><span id="selection-status" class="muted right" aria-live="polite"></span></div>
+    <div id="active-view" hidden>
+      <div class="toolbar"><button id="reload-active" type="button">Обновить поставки</button><button id="copy-active" type="button">Скопировать все названия</button><span id="active-note" class="muted" role="status"></span></div>
+      <div class="table-wrap"><table class="queue-table" aria-label="Открытые поставки">
+        <thead><tr><th>Идентификатор поставки</th><th>Товар / заказ</th><th>Номер стикера</th><th>IMEI</th></tr></thead>
+        <tbody id="active-rows"></tbody>
+      </table></div>
+    </div>
+    <div id="new-view">
+    <div class="toolbar"><button id="select-visible" type="button">Выбрать видимые</button><button id="copy-new" type="button">Скопировать все названия</button></div>
     <p id="assembly-note" class="empty" hidden></p>
     <div class="table-wrap" id="table-wrap">
-      <table aria-label="Заказы для сборки">
-        <thead><tr><th><input id="select-all" type="checkbox" aria-label="Выбрать все видимые заказы"></th><th><button class="sort" data-sort="id">Номер</button></th><th>Карточка</th><th><button class="sort" data-sort="title">Название</button></th><th><button class="sort" data-sort="price">Цена</button></th><th><button class="sort" data-sort="age">Возраст</button></th><th><button class="sort" data-sort="warehouseId">Склад</button></th><th><button class="sort" data-sort="shop">Магазин</button></th></tr></thead>
+      <table class="queue-table" aria-label="Заказы для сборки">
+        <thead><tr><th><input id="select-all" type="checkbox" aria-label="Выбрать все видимые заказы"></th><th><button class="sort" data-sort="id">Заказ</button> <button class="sort" data-sort="age">Возраст</button></th><th><button class="sort" data-sort="title">Товар</button></th><th><button class="sort" data-sort="price">Цена</button></th><th><button class="sort" data-sort="warehouseId">Склад</button></th><th><button class="sort" data-sort="shop">Магазин</button></th></tr></thead>
         <tbody id="orders"></tbody>
       </table>
     </div>
+    <div id="selection-bar" class="selection-bar" hidden>
+      <strong id="selection-status" aria-live="polite"></strong>
+      <button id="destination-new" class="primary" type="button">＋ Новая поставка</button>
+      <button id="destination-existing" type="button">В существующую</button>
+      <button id="clear-selection" type="button" aria-label="Снять выбор">×</button>
+    </div>
+    </div>
   </section>
   <section id="supplies" hidden>
-    <div class="glass panel"><div class="actions"><a class="button" href="/assembly">К заказам</a><button id="preview-supplies" class="primary" type="button">Рассчитать поставки</button><button type="button" disabled>Отправить в сборку</button></div><p class="supply-state muted" id="supply-status" role="status"></p></div>
-    <h2 class="section-title">Поставки по магазинам</h2><div class="cards" id="supply-items"></div>
+    <h2 class="section-title">Все поставки WB</h2>
+    <div class="glass panel"><div class="actions"><label>Магазин <select id="supply-shop"></select></label><button id="reload-supplies" type="button">Обновить список</button></div><p id="supply-list-status" role="status"></p></div>
+    <div class="cards" id="existing-supplies"></div>
   </section>
   <section id="vds" hidden>
     <div class="glass diagnostic-hero"><div><strong id="vds-location">Проверка подключения</strong><p class="muted" id="vds-endpoint"></p></div><span class="pill" id="vds-badge">Ожидание</span></div>
@@ -72,6 +110,29 @@ button,.button{padding:8px 13px;border:1px solid #60427c;border-radius:10px;colo
     </div>
   </section>
 </main>
+<dialog id="destination-dialog" aria-labelledby="destination-title">
+  <h2 id="destination-title">В существующую поставку</h2>
+  <form id="destination-form">
+    <div id="destination-choices"></div>
+    <div class="actions"><button id="destination-send" class="primary" type="submit">Добавить заказы</button><button id="destination-cancel" type="button">Отмена</button></div>
+  </form>
+</dialog>
+<dialog id="supply-detail-dialog" aria-labelledby="supply-detail-title">
+  <div class="actions"><h2 id="supply-detail-title">Заказы в поставке</h2><button id="download-all-stickers" type="button" disabled>Скачать все стикеры (PDF)</button><button id="download-supply-imei" type="button">Шаблон IMEI (.xlsx)</button><form method="dialog"><button type="submit">Закрыть</button></form></div>
+  <p id="supply-detail-status" role="status"></p>
+  <div id="supply-detail-table" class="table-wrap" hidden><table class="queue-table">
+    <thead><tr><th>Заказ</th><th>Товар</th><th>Номер стикера</th><th>Файл</th><th>IMEI</th></tr></thead>
+    <tbody id="supply-detail-rows"></tbody>
+  </table></div>
+</dialog>
+<dialog id="imei-dialog" aria-labelledby="imei-title">
+  <h2 id="imei-title">IMEI заказа</h2>
+  <form id="imei-form">
+    <label>IMEI или IMEI1 <input id="imei-input" type="text" inputmode="numeric" maxlength="15" pattern="[0-9]{15}" required autocomplete="off"></label>
+    <p id="imei-status" role="status"></p>
+    <div class="actions"><button id="imei-save" class="primary" type="submit">Сохранить IMEI</button><button id="imei-cancel" type="button">Отмена</button></div>
+  </form>
+</dialog>
 <div id="order-tooltip" class="order-tooltip" aria-hidden="true" hidden></div>
 <script>
 const byId = id => document.getElementById(id);
@@ -79,11 +140,15 @@ const sections = {
   '/': ['dashboard', 'Сводка заказов', 'Новые сборочные задания FBS по магазинам.'],
   '/assembly': ['assembly', 'Сборка', 'Выбери магазины и отметь заказы, которые берёшь в работу.'],
   '/shops': ['shops', 'Магазины', 'Подключи магазины по API-токенам Wildberries.'],
-  '/supplies': ['supplies', 'Поставки', 'Предпросмотр отправки выбранных заказов в сборку WB.'],
+  '/supplies': ['supplies', 'Поставки', 'Список поставок WB и отправка выбранных заказов в сборку.'],
   '/vds': ['vds', 'Диагностика VDS', 'SSH, исходящий IPv4 и доступность WB API с сервера.'],
 };
 const [section, heading, lead] = sections[location.pathname] || sections['/'];
 byId(section).hidden = false;
+const showsAssembly = section === 'dashboard' || section === 'assembly';
+if (showsAssembly) {
+  byId('assembly').hidden = false;
+}
 byId('heading').textContent = heading;
 byId('lead').textContent = lead;
 document.querySelector('nav a[href="' + location.pathname + '"]')?.setAttribute('aria-current', 'page');
@@ -100,7 +165,6 @@ let exchange = null;
 let assemblySnapshot;
 let sort = { key: 'age', direction: -1 };
 let diagnosticBusy = false;
-let previewBusy = false;
 const compare = new Intl.Collator('ru-RU', { numeric: true, sensitivity: 'base' });
 const rubles = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', trailingZeroDisplay: 'stripIfInteger' });
 const yuan = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'CNY', trailingZeroDisplay: 'stripIfInteger' });
@@ -141,10 +205,123 @@ function shopStatus(shop) {
   if (shop.busy) return 'Обновляется…';
   return shop.updatedAt ? 'Обновлено ' + date(shop.updatedAt) : 'Ещё не обновлялся';
 }
+let activeQueue;
+let queueMode = section === 'dashboard' ? 'new' : 'active';
+let queueRequest;
+let queueError = '';
+const queueStickers = new Map();
+const savedImeis = new Map();
+let stickerRequest;
+let stickerError = '';
+
+function queueCounts(items) {
+  const fresh = new Set(items.flatMap(shop => (shop.orders || []).map(order => shop.id + '/' + order.id)));
+  const active = new Set();
+  for (const shop of items) {
+    for (const supply of activeQueue?.find(item => item.id === shop.id)?.supplies || []) {
+      for (const id of supply.orderIds) active.add(shop.id + '/' + id);
+    }
+  }
+  for (const key of active) fresh.delete(key);
+  const complete = items.every(shop => Array.isArray(shop.orders) && !shop.error && !shop.busy &&
+    activeQueue?.some(item => item.id === shop.id && !item.error));
+  return { fresh: fresh.size, active: active.size, total: fresh.size + active.size, complete };
+}
+
+function activeRows(visible) {
+  const rows = new Map();
+  for (const shop of visible) {
+    for (const supply of shop.supplies) {
+      for (const order of supply.items || supply.orderIds.map(id => ({ id }))) {
+        rows.set(shop.id + '/' + order.id, { shop, supply, order });
+      }
+    }
+  }
+  return rows;
+}
+
+function filteredActiveShops() {
+  const visibleIds = new Set(shops.filter(shop => filter === null || filter.includes(shop.id)).map(shop => shop.id));
+  return (activeQueue || []).filter(shop => visibleIds.has(shop.id));
+}
+
+function renderQueue() {
+  const matching = shops.filter(shop => filter === null || filter.includes(shop.id));
+  const counts = queueCounts(matching);
+  byId('new-count').textContent = number.format(counts.fresh);
+  byId('active-count').textContent = activeQueue ? number.format(counts.active) : '—';
+  byId('queue-new').setAttribute('aria-pressed', String(queueMode === 'new'));
+  byId('queue-active').setAttribute('aria-pressed', String(queueMode === 'active'));
+  byId('new-view').hidden = queueMode !== 'new';
+  byId('active-view').hidden = queueMode === 'new';
+  if (queueMode === 'new') return;
+  const visible = filteredActiveShops();
+  const rows = activeRows(visible);
+  byId('active-rows').replaceChildren(...[...rows.values()].map(({ shop, supply, order }) => {
+    const row = element('tr');
+    const destination = row.insertCell();
+    const day = /^\d{4}-\d{2}-\d{2}/.test(supply.createdAt || '') ? supplyDate(supply.createdAt) : '—';
+    destination.append(action([shop.name, day, supply.id].join(' · '), () => openSupplyDetails(shop, supply), ''));
+    if (supply.name) destination.append(element('div', supply.name, 'queue-meta'));
+    const first = row.insertCell();
+    first.append(element('strong', order.title || order.article || 'Нет данных о товаре'),
+      element('div', 'Заказ № ' + order.id, 'queue-meta'));
+    if (order.title && order.article) first.append(element('div', 'Арт. ' + order.article, 'queue-meta'));
+    row.insertCell().append(element('span', queueStickers.get(shop.id + '/' + order.id) || '—', 'sticker-number'));
+    const imei = row.insertCell();
+    imei.append(imeiButton(shop, supply, order));
+    return row;
+  }));
+  const errors = visible.filter(shop => shop.error || shop.titleWarning)
+    .map(shop => shop.name + ': ' + (shop.error || shop.titleWarning));
+  byId('active-note').textContent = queueRequest ? 'Проверяю открытые поставки…' :
+    [queueError || ('Заказов: ' + rows.size), stickerRequest ? 'Загружаю номера стикеров…' : stickerError, ...errors].filter(Boolean).join(' · ');
+}
+
+async function loadQueueStickers() {
+  if (stickerRequest || !activeQueue || queueMode === 'new') return;
+  const matching = activeQueue.filter(shop => (filter === null || filter.includes(shop.id)) &&
+    shop.supplies.some(supply => supply.orderIds.some(id => !queueStickers.has(shop.id + '/' + id))));
+  if (!matching.length) return;
+  stickerError = '';
+  stickerRequest = Promise.all(matching.map(async shop => {
+    try {
+      const data = await request('/api/assembly/stickers', { id: shop.id });
+      for (const order of data.orders) if (order.number || !data.warnings.length) queueStickers.set(shop.id + '/' + order.id, order.number);
+      return data.warnings.map(message => shop.name + ': ' + message);
+    } catch (error) { return [shop.name + ': ' + error.message]; }
+  }));
+  renderQueue();
+  try { stickerError = (await stickerRequest).flat().join(' · '); }
+  finally { stickerRequest = null; renderQueue(); }
+}
+
+async function loadActiveQueue(fresh = false) {
+  if (queueRequest) return queueRequest;
+  byId('reload-active').disabled = true;
+  queueError = '';
+  queueRequest = request('/api/assembly/supplies' + (fresh ? '?fresh=1' : ''));
+  renderQueue();
+  try {
+    activeQueue = (await queueRequest).shops;
+  } catch (error) {
+    queueError = error.message;
+  } finally {
+    queueRequest = null;
+    byId('reload-active').disabled = false;
+    renderAssembly();
+    if (section === 'dashboard') renderDashboard();
+    void loadQueueStickers();
+  }
+}
+
 function renderDashboard() {
   const loaded = shops.filter(shop => shop.updatedAt);
-  const total = loaded.reduce((count, shop) => count + shop.orders.length, 0);
-  const metrics = [['Новые задания', loaded.length ? number.format(total) : '—'],
+  const counts = queueCounts(shops);
+  const metrics = [['Всего', shops.length && (loaded.length || activeQueue) ?
+    (counts.complete && !queueError ? '' : '≥ ') + number.format(counts.total) : '—'],
+    ['Новые', loaded.length ? number.format(counts.fresh) : '—'],
+    ['На сборке', activeQueue ? number.format(counts.active) : '—'],
     ['Данные получены', loaded.length + ' из ' + shops.length],
     ['Магазины с ошибками', shops.filter(shop => shop.error).length]];
   byId('metrics').replaceChildren(...metrics.map(([label, value]) => {
@@ -168,12 +345,109 @@ function renderDashboard() {
     cards.push(empty);
   }
   byId('cards').replaceChildren(...cards);
+  renderProductStats();
+}
+
+function supplyDate(value) {
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', year: 'numeric',
+  }).format(parsed) : '—';
+}
+
+function cleanProductTitle(title) {
+  return String(title || '').replace(/(?<![\p{L}])(?:iphone|айфон|восстановлен{1,2}[а-яё]*)(?![\p{L}])/giu, '')
+    .replace(/(?:\s*,\s*){2,}/g, ', ').replace(/\s+/g, ' ').replace(/^[\s,;·–—-]+|[\s,;·–—-]+$/g, '').trim();
+}
+
+function modelAndStorage(order) {
+  const title = cleanProductTitle(order.title);
+  const model = /^(?:apple\s+)?(\d{1,2}|xs|xr|x|se)(?:[-\s]*(pro\s*max|pro|plus|mini|max|air|e|s)(?![\p{L}]))?(?=$|[^\p{L}\d])/iu.exec(title);
+  const memory = model && /(?:^|[^\d])(16|32|64|128|256|512|1024|2048|1|2)\s*(gb|гб|tb|тб)(?![\p{L}])/iu.exec(title.slice(model[0].length));
+  if (!memory) return title || order.article || 'Товар не определён';
+  const size = /^(?:tb|тб)$/iu.test(memory[2]) ? Number(memory[1]) + ' ТБ' :
+    Number(memory[1]) >= 1024 ? Number(memory[1]) / 1024 + ' ТБ' : memory[1] + ' ГБ';
+  const variant = model[2]?.replace(/promax/i, 'pro max').split(/\s+/)
+    .map(word => word[0].toUpperCase() + word.slice(1).toLowerCase()).join(' ');
+  return [model[1].toUpperCase(), variant, size].filter(Boolean).join(' ');
+}
+
+let statsSort = { field: 'total', direction: -1 };
+
+function compareProductStats([leftLabel, left], [rightLabel, right], sort) {
+  const byName = compare.compare(leftLabel, rightLabel);
+  if (sort.field === 'model') return byName * sort.direction;
+  if (sort.field === 'cents' && Boolean(left.priced) !== Boolean(right.priced)) return Number(!left.priced) - Number(!right.priced);
+  const value = row => sort.field === 'total' ? row.fresh + row.active : row[sort.field];
+  return (value(left) - value(right)) * sort.direction || byName;
+}
+
+function productStats() {
+  const products = new Map();
+  const counted = new Set();
+  const freshById = new Map(shops.flatMap(shop => (shop.orders || []).map(order => [shop.id + '/' + order.id, order])));
+  const add = (shopId, order, status) => {
+    const key = shopId + '/' + order.id;
+    if (counted.has(key)) return;
+    counted.add(key);
+    const fallback = freshById.get(key) || {};
+    const known = { ...fallback, ...Object.fromEntries(Object.entries(order).filter(([, value]) => value != null)) };
+    const label = modelAndStorage(known);
+    if (!products.has(label)) products.set(label, { fresh: 0, active: 0, cents: 0, priced: 0, approximate: false });
+    const product = products.get(label);
+    product[status]++;
+    const amounts = price(known);
+    if (amounts.rub != null) {
+      product.cents += Math.round(amounts.rub * 100);
+      product.priced++;
+      product.approximate ||= Boolean(amounts.approximateRub);
+    }
+  };
+  const shopIds = new Set(shops.map(shop => shop.id));
+  for (const shop of activeQueue || []) {
+    if (!shopIds.has(shop.id)) continue;
+    for (const supply of shop.supplies) {
+      for (const order of supply.items || supply.orderIds.map(id => ({ id }))) add(shop.id, order, 'active');
+    }
+  }
+  for (const shop of shops) for (const order of shop.orders || []) add(shop.id, order, 'fresh');
+  return [...products].sort((left, right) => compareProductStats(left, right, statsSort));
+}
+
+function renderProductStats() {
+  if (!byId('product-stats-panel').open) return;
+  for (const button of document.querySelectorAll('[data-stat-sort]')) {
+    if (button.dataset.statSort === statsSort.field) {
+      button.parentElement.setAttribute('aria-sort', statsSort.direction === 1 ? 'ascending' : 'descending');
+    } else button.parentElement.removeAttribute('aria-sort');
+  }
+  byId('product-stats').replaceChildren(...productStats().map(([label, { fresh, active, cents, priced, approximate }]) => {
+    const row = element('tr');
+    for (const value of [label, fresh + active, fresh, active]) row.insertCell().textContent = value;
+    const sum = row.insertCell();
+    sum.textContent = priced ? (approximate ? '≈ ' : '') + rubles.format(cents / 100) : '—';
+    if (priced < fresh + active) sum.append(element('div', 'Без цены: ' + (fresh + active - priced), 'queue-meta'));
+    return row;
+  }));
+}
+
+async function copyOrderTitles(orders) {
+  const titles = orders.map(order => cleanProductTitle(order.title)).filter(Boolean);
+  if (!titles.length) return showError('Нет названий для копирования.');
+  try {
+    await navigator.clipboard.writeText(titles.join('\n'));
+    showError('Скопировано названий: ' + titles.length + '.');
+  } catch {
+    showError('Не удалось записать в буфер обмена. Разреши доступ в браузере.');
+  }
 }
 function visibleOrders() {
+  const active = new Set((activeQueue || []).flatMap(shop =>
+    shop.supplies.flatMap(supply => supply.orderIds.map(id => shop.id + '/' + id))));
   return shops.filter(shop => filter === null || filter.includes(shop.id))
     .flatMap(shop => (shop.orders || []).map(order => ({
       ...order, shop: shop.name, key: shop.id + '/' + order.id,
-    })))
+    }))).filter(order => !active.has(order.key))
     .sort((a, b) => {
       const left = sortValue(a);
       const right = sortValue(b);
@@ -249,6 +523,7 @@ function updateSelection(visible) {
   byId('select-visible').disabled = !visible.length;
   byId('clear-selection').disabled = !picked.size;
   byId('selection-status').textContent = 'Выбрано ' + picked.size + ' · видно ' + selected + ' из ' + visible.length;
+  byId('selection-bar').hidden = !picked.size;
   store('wb-fbs-picked', [...picked]);
 }
 function setVisibleSelection(add) {
@@ -274,11 +549,13 @@ function renderAssembly() {
       filter = ids.size === shops.length ? null : [...ids];
       store('wb-fbs-filter', filter);
       renderAssembly();
+      void loadQueueStickers();
     });
     label.append(checkbox, document.createTextNode(shop.name));
     return label;
   });
   byId('filters').replaceChildren(...filters);
+  renderQueue();
   if (previousFilter) byId('filters').querySelector('[data-shop-filter="' + previousFilter + '"]')?.focus();
   const visible = visibleOrders();
   const previousOrder = document.activeElement?.dataset.orderKey;
@@ -302,7 +579,9 @@ function renderAssembly() {
       updateSelection(visible);
     });
     row.insertCell().append(check);
-    row.insertCell().textContent = order.id;
+    const orderCell = row.insertCell();
+    orderCell.append(element('strong', order.id));
+    if (order.createdAt) orderCell.append(element('div', date(order.createdAt), 'queue-meta'));
     const thumb = element('span', '—', 'thumb');
     if (order.photo) {
       const img = element('img');
@@ -312,8 +591,10 @@ function renderAssembly() {
       img.src = order.photo;
       thumb.replaceChildren(img);
     }
-    row.insertCell().append(thumb);
-    const product = row.insertCell();
+    const productCell = element('div', null, 'queue-product');
+    const product = element('div');
+    productCell.append(thumb, product);
+    row.insertCell().append(productCell);
     product.append(element('strong', order.title || order.article || 'Товар без названия'));
     if (order.title && order.article) product.append(element('div', order.article, 'muted'));
     const amounts = price(order);
@@ -324,7 +605,11 @@ function renderAssembly() {
     const created = Date.parse(order.createdAt);
     const timer = tip(age(order.createdAt), 'Время заказа', Number.isFinite(created) ? ageFormat.format(created) : 'Неизвестно', Number.isFinite(created) ? 'Московское время' : '');
     timer.dataset.created = order.createdAt || '';
-    row.insertCell().append(timer);
+    const timing = element('div', null, 'queue-meta');
+    timing.append(timer);
+    const cargo = { 1: 'МГТ', 2: 'СГТ', 3: 'КГТ+' }[order.cargoType];
+    if (cargo) timing.append(element('span', cargo, 'queue-tag'));
+    orderCell.append(timing);
     row.insertCell().textContent = order.warehouseId ?? '—';
     row.insertCell().textContent = order.shop;
     return row;
@@ -356,8 +641,8 @@ function editShop(shop) {
   const form = byId('shop-form');
   form.reset();
   editing = shop?.id || '';
-  byId('form-title').textContent = editing ? 'Изменить магазин' : 'Добавить магазин';
   byId('shop-name').value = shop?.name || '';
+  byId('form-title').textContent = editing ? 'Изменить магазин' : 'Добавить магазин';
   byId('shop-token').required = !editing;
   byId('shop-token').placeholder = editing ? 'Оставь пустым, чтобы сохранить текущий' : '';
   byId('cancel').hidden = !editing;
@@ -381,7 +666,7 @@ function apply(state) {
     byId('refresh').textContent = busy ? 'Обновляется…' : 'Обновить заказы';
   }
   if (section === 'dashboard') renderDashboard();
-  if (section === 'assembly') {
+  if (showsAssembly) {
     const next = JSON.stringify([shops, exchange]);
     if (next !== assemblySnapshot) {
       assemblySnapshot = next;
@@ -435,30 +720,209 @@ async function diagnostics() {
   }
 }
 
-async function previewSupplies() {
-  if (previewBusy) return;
-  previewBusy = true;
-  const button = byId('preview-supplies');
-  const status = byId('supply-status');
-  button.disabled = true;
+let choosingDestination = false;
+let destinationGroups = [];
+
+async function sendGroups(groups, destinations) {
+  const failures = [];
+  const sent = [];
+  for (const [index, group] of groups.entries()) {
+    const keys = group.orderIds.map(id => group.shopId + '/' + id);
+    try {
+      const result = await request('/api/supplies/submit', { id: group.shopId, name: group.displayName, keys, supplyId: destinations[index] });
+      sent.push(result.supplyId);
+      for (const key of keys) picked.delete(key);
+    } catch (error) {
+      failures.push(group.shop + ': ' + error.message);
+    }
+  }
+  store('wb-fbs-picked', [...picked]);
+  renderAssembly();
+  showError([sent.length ? 'Заказы добавлены: ' + sent.join(', ') + '.' : '', ...failures].filter(Boolean).join(' '));
+  void sync();
+  void loadActiveQueue();
+}
+
+async function chooseDestination(existing) {
+  if (choosingDestination || !picked.size) return;
+  choosingDestination = true;
   try {
+    if (existing) await loadActiveQueue();
     const { groups, missing } = await request('/api/plan', { keys: [...picked] });
-    status.textContent = groups.length ? 'Групп: ' + groups.length + '. Предпросмотр · запись в WB отключена.' :
-      (picked.size ? 'Выбранные заказы сейчас не найдены в очереди. Обнови заказы и проверь выбор.' : 'Выбери заказы на странице «Сборка».');
-    if (groups.length && missing.length) status.textContent += ' Больше не в очереди: ' + missing.length + '.';
-    byId('supply-items').replaceChildren(...groups.map(group => {
-      const item = element('article', null, 'glass card');
-      item.append(element('h2', group.shop), element('strong', group.displayName || group.name),
-        element('small', 'Склад ' + (group.warehouseId ?? '—') + ' · заданий ' + group.orderIds.length),
-        element('p', group.orderIds.join(', '), 'supply-list muted'),
-        element('small', group.stale ? 'Заказы устарели. Обнови магазин перед отправкой.' : group.incomplete ?
-          'Для отправки нужно уточнить параметры совместимости в WB.' : 'При отправке будет проверена открытая поставка на сегодня.', group.stale || group.incomplete ? 'warning' : ''));
-      return item;
+    if (!groups.length || missing.length || groups.some(group => group.stale || group.incomplete)) {
+      throw new Error('Часть заказов недоступна или у неё не хватает параметров совместимости. Обнови заказы и выбери их заново.');
+    }
+    if (!existing) {
+      if (confirm('Создать поставок: ' + groups.length + '. Добавить выбранные заказы (' + picked.size + ')?')) {
+        await sendGroups(groups, groups.map(() => null));
+      }
+      return;
+    }
+    if (groups.some(group => !group.choices.length)) {
+      throw new Error('Нет подтверждённой совместимой открытой поставки для: ' +
+        groups.filter(group => !group.choices.length).map(group => group.shop + ' · склад ' + group.warehouseId).join(', ') +
+        '. Выбери «Новая поставка» или измени набор заказов.');
+    }
+    destinationGroups = groups;
+    byId('destination-choices').replaceChildren(...groups.map(group => {
+      const label = element('label', group.shop + ' · склад ' + group.warehouseId + ' · заказов ' + group.orderIds.length);
+      const select = element('select');
+      select.required = true;
+      select.append(new Option('Выбери поставку', ''), ...group.choices.map(item => new Option((item.name || item.id) + ' · ' + item.id, item.id)));
+      label.append(select);
+      return label;
     }));
+    byId('destination-dialog').showModal();
   } catch (error) {
-    status.textContent = error.message;
+    showError(error.message);
   } finally {
-    previewBusy = false;
+    choosingDestination = false;
+  }
+}
+
+let listedSupplyShops = [];
+let detailsRequest = 0;
+let lastSupplyDetails;
+let openedSupply;
+let editingImei;
+
+function imeiButton(shop, supply, order) {
+  const saved = savedImeis.has(shop.id + '/' + order.id);
+  return action(saved ? 'IMEI сохранён' : 'Указать IMEI', () => {
+    editingImei = { shop, supply, order };
+    byId('imei-title').textContent = 'IMEI заказа ' + order.id + ' · ' + shop.name;
+    byId('imei-input').value = '';
+    byId('imei-status').textContent = '';
+    byId('imei-dialog').showModal();
+  }, '');
+}
+
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = element('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function downloadSupplyFile(endpoint, shop, supply, filename, orderId) {
+  const response = await fetch(endpoint, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: shop.id, supplyId: supply.id, orderId }),
+  });
+  if (!response.ok) throw new Error((await response.json()).error);
+  saveBlob(await response.blob(), filename);
+  return response.headers;
+}
+
+async function downloadStickers(shop, supply, orderId) {
+  const button = byId('download-all-stickers');
+  const status = byId('supply-detail-status');
+  const current = detailsRequest;
+  if (!orderId) button.disabled = true;
+  try {
+    const headers = await downloadSupplyFile('/api/supplies/stickers.pdf', shop, supply,
+      (orderId ? 'WB-' + orderId : supply.id + '-stickers') + '.pdf', orderId);
+    const missing = Number(headers.get('X-Missing-Stickers'));
+    if (current === detailsRequest) status.textContent = 'PDF скачан.' +
+      (missing ? ' WB не выдал стикеры для ' + missing + ' заказов.' : '');
+  } catch (error) {
+    if (current === detailsRequest) status.textContent = error.message;
+  } finally {
+    if (!orderId && current === detailsRequest) button.disabled = false;
+  }
+}
+
+async function downloadImeiTemplate(shop, supply) {
+  try {
+    const shopName = shop.name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim() || 'Магазин';
+    const created = supplyDate(supply.createdAt);
+    const day = created === '—' ? supplyDate(new Date()) : created;
+    const headers = await downloadSupplyFile('/api/supplies/imei-template', shop, supply,
+      shopName + '-' + day + '-' + supply.id + '-IMEI.xlsx');
+    const message = 'WB вернул IMEI для ' + headers.get('X-Exported-Imei-Count') + ' из ' +
+      headers.get('X-Exported-Order-Count') + ' заказов.';
+    if (byId('supply-detail-dialog').open) byId('supply-detail-status').textContent = message;
+    else showError(message);
+  } catch (error) {
+    if (byId('supply-detail-dialog').open) byId('supply-detail-status').textContent = error.message;
+    else showError(error.message);
+  }
+}
+
+async function openSupplyDetails(shop, supply) {
+  const dialog = byId('supply-detail-dialog');
+  const table = byId('supply-detail-table');
+  const status = byId('supply-detail-status');
+  const requestId = ++detailsRequest;
+  openedSupply = { shop, supply };
+  byId('download-all-stickers').disabled = true;
+  const key = shop.id + '/' + supply.id + '/' + (supply.orderIds?.join(',') ?? '');
+  byId('supply-detail-title').textContent = (supply.name || supply.id) + ' · ' + shop.name;
+  table.hidden = true;
+  status.textContent = 'Загружаю заказы и стикеры…';
+  if (!dialog.open) dialog.showModal();
+  try {
+    const data = lastSupplyDetails?.key === key && Date.now() < lastSupplyDetails.expires
+      ? lastSupplyDetails.data : await request('/api/supplies/details', { id: shop.id, supplyId: supply.id });
+    if (requestId !== detailsRequest || !dialog.open) return;
+    if (!data.warnings.length) lastSupplyDetails = { key, data, expires: Date.now() + 30000 };
+    byId('supply-detail-rows').replaceChildren(...data.orders.map(order => {
+      const row = element('tr');
+      row.insertCell().append(element('strong', order.id));
+      row.insertCell().textContent = [order.title, order.article].filter(Boolean).join(' · ') || '—';
+      row.insertCell().append(element('span', order.sticker?.number || '—', 'sticker-number'));
+      const cell = row.insertCell();
+      if (order.sticker?.available) cell.append(action('Скачать PDF', () => downloadStickers(shop, supply, order.id), ''));
+      else cell.textContent = 'Нет стикера';
+      const imei = row.insertCell();
+      if (supply.done !== true) imei.append(imeiButton(shop, supply, order));
+      else imei.textContent = '—';
+      return row;
+    }));
+    table.hidden = !data.orders.length;
+    const unavailable = data.orders.filter(order => !order.sticker?.available).length;
+    byId('download-all-stickers').disabled = unavailable === data.orders.length;
+    status.textContent = [data.orders.length ? 'Заказов: ' + data.orders.length + '.' : 'Поставка пустая.',
+      unavailable ? 'Без файла стикера: ' + unavailable + '.' : '', ...data.warnings].filter(Boolean).join(' ');
+  } catch (error) {
+    if (requestId === detailsRequest && dialog.open) status.textContent = error.message;
+  }
+}
+
+function renderSupplyList() {
+  const selected = byId('supply-shop').value;
+  const visible = listedSupplyShops.filter(shop => !selected || shop.id === selected);
+  const cards = visible.flatMap(shop => shop.supplies.map(supply => ({ shop, supply })));
+  cards.sort((first, second) => String(second.supply.createdAt || '').localeCompare(String(first.supply.createdAt || '')));
+  byId('existing-supplies').replaceChildren(...cards.map(({ shop, supply }) => {
+    const item = element('article', null, 'glass card');
+    item.append(element('h2', supply.name || supply.id), element('div', shop.name),
+      element('small', [supply.id, supply.done ? 'Закрыта' : 'Открыта', supply.createdAt && date(supply.createdAt)].filter(Boolean).join(' · ')),
+      action('Заказы и стикеры', () => openSupplyDetails(shop, supply), ''),
+      action('Скачать шаблон IMEI (.xlsx)', () => downloadImeiTemplate(shop, supply), ''));
+    return item;
+  }));
+  const errors = visible.filter(shop => shop.error).map(shop => shop.name + ': ' + shop.error);
+  byId('supply-list-status').textContent = ['Поставок: ' + cards.length, ...errors].join(' · ');
+}
+
+async function loadSupplies() {
+  const button = byId('reload-supplies');
+  if (button.disabled) return;
+  button.disabled = true;
+  byId('supply-list-status').textContent = 'Загружаю поставки WB…';
+  try {
+    listedSupplyShops = (await request('/api/supplies')).shops;
+    const filter = byId('supply-shop');
+    const previous = filter.value;
+    filter.replaceChildren(new Option('Все магазины', ''), ...listedSupplyShops.map(shop => new Option(shop.name, shop.id)));
+    filter.value = listedSupplyShops.some(shop => shop.id === previous) ? previous : '';
+    renderSupplyList();
+  } catch (error) {
+    byId('supply-list-status').textContent = error.message;
+  } finally {
     button.disabled = false;
   }
 }
@@ -505,8 +969,80 @@ async function mutate(url, input) {
     byId('refresh').disabled = !shops.length || shops.some(shop => shop.busy);
   }
 }
-byId('refresh').addEventListener('click', () => section === 'vds' ? diagnostics() : mutate('/api/refresh', {}));
-byId('preview-supplies').addEventListener('click', previewSupplies);
+byId('refresh').addEventListener('click', () => {
+  if (section === 'vds') return diagnostics();
+  if (showsAssembly) void loadActiveQueue();
+  return mutate('/api/refresh', {});
+});
+for (const [id, mode] of [['queue-new', 'new'], ['queue-active', 'active']]) {
+  byId(id).addEventListener('click', () => {
+    queueMode = mode;
+    renderQueue();
+    if (mode === 'active') void loadActiveQueue();
+  });
+}
+byId('reload-active').addEventListener('click', () => loadActiveQueue(true));
+byId('download-all-stickers').addEventListener('click', () => {
+  if (openedSupply) void downloadStickers(openedSupply.shop, openedSupply.supply);
+});
+byId('download-supply-imei').addEventListener('click', () => {
+  if (openedSupply) void downloadImeiTemplate(openedSupply.shop, openedSupply.supply);
+});
+byId('product-stats-panel').addEventListener('toggle', renderProductStats);
+for (const button of document.querySelectorAll('[data-stat-sort]')) {
+  button.addEventListener('click', () => {
+    const field = button.dataset.statSort;
+    statsSort = { field, direction: statsSort.field === field ? -statsSort.direction : field === 'model' ? 1 : -1 };
+    renderProductStats();
+  });
+}
+byId('imei-cancel').addEventListener('click', () => byId('imei-dialog').close());
+byId('imei-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = byId('imei-save');
+  if (button.disabled || !editingImei) return;
+  const { shop, supply, order } = editingImei;
+  const imei = byId('imei-input').value;
+  button.disabled = true;
+  try {
+    await request('/api/supplies/imei', { id: shop.id, supplyId: supply.id, orderId: order.id, imei });
+    savedImeis.set(shop.id + '/' + order.id, true);
+    byId('imei-dialog').close();
+    byId('imei-input').value = '';
+    renderQueue();
+    if (byId('supply-detail-dialog').open && openedSupply) {
+      await openSupplyDetails(openedSupply.shop, openedSupply.supply);
+    }
+    showError('IMEI сохранён для заказа ' + order.id + '.');
+  } catch (error) {
+    byId('imei-status').textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+byId('destination-new').addEventListener('click', () => chooseDestination(false));
+byId('destination-existing').addEventListener('click', () => chooseDestination(true));
+byId('destination-cancel').addEventListener('click', () => byId('destination-dialog').close());
+byId('destination-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (choosingDestination) return;
+  const destinations = [...byId('destination-choices').querySelectorAll('select')].map(select => select.value);
+  const destinationKeys = destinations.map((id, index) => destinationGroups[index].shopId + '/' + id);
+  if (new Set(destinationKeys).size !== destinations.length) {
+    const selects = [...byId('destination-choices').querySelectorAll('select')];
+    const duplicate = selects[destinationKeys.findIndex((key, index) => destinationKeys.indexOf(key) !== index)];
+    duplicate.setCustomValidity('Выбери отдельную поставку для этой группы.');
+    duplicate.reportValidity();
+    duplicate.addEventListener('change', () => duplicate.setCustomValidity(''), { once: true });
+    return;
+  }
+  byId('destination-dialog').close();
+  choosingDestination = true;
+  try { await sendGroups(destinationGroups, destinations); }
+  finally { choosingDestination = false; }
+});
+byId('reload-supplies').addEventListener('click', loadSupplies);
+byId('supply-shop').addEventListener('change', renderSupplyList);
 for (const control of document.querySelectorAll('[data-sort]')) control.addEventListener('click', () => {
   const key = control.dataset.sort;
   sort = { key, direction: sort.key === key ? -sort.direction : 1 };
@@ -514,6 +1050,8 @@ for (const control of document.querySelectorAll('[data-sort]')) control.addEvent
   renderAssembly();
 });
 byId('select-visible').addEventListener('click', () => setVisibleSelection(true));
+byId('copy-new').addEventListener('click', () => copyOrderTitles(visibleOrders()));
+byId('copy-active').addEventListener('click', () => copyOrderTitles([...activeRows(filteredActiveShops()).values()].map(row => row.order)));
 byId('select-all').addEventListener('change', event => setVisibleSelection(event.target.checked));
 byId('clear-selection').addEventListener('click', () => { picked.clear(); renderAssembly(); });
 byId('cancel').addEventListener('click', () => editShop());
@@ -525,11 +1063,12 @@ byId('shop-form').addEventListener('submit', async event => {
   })) editShop();
 });
 if (section === 'vds') diagnostics();
-if (section === 'supplies') previewSupplies();
+if (section === 'supplies') loadSupplies();
 if (section !== 'vds') sync();
+if (showsAssembly) void loadActiveQueue();
 setInterval(() => { if (shops.some(shop => shop.busy)) sync(); }, 1800);
 if (section !== 'vds') setInterval(sync, 12000);
-if (section === 'assembly') setInterval(() => {
+if (showsAssembly) setInterval(() => {
   for (const timer of document.querySelectorAll('[data-created]')) timer.textContent = age(timer.dataset.created);
 }, 15000);
 </script>
